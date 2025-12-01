@@ -1,1 +1,1 @@
-# montecarlo_ionic_particles_simulation
+# montecarlo_particles_simulation
