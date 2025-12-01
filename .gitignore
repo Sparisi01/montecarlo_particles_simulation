@@ -5,6 +5,10 @@ __pycache__/
 
 # C extensions
 *.so
+# Certain files
+*.cu
+*.gnuplot
+cuda/
 
 # Distribution / packaging
 .Python
