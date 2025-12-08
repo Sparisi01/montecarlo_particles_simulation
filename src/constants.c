@@ -7,8 +7,8 @@
 
 // Simulation Parameters
 #define N 1000
-#define SPACE_DIM 3
 #define DENSITY 1
+#define SPACE_DIM 10
 #define BOX_SIZE 10
 #define N_METROPOLIS_STEPS 100000
 #define STEP_SIZE 0.05
