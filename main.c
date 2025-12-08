@@ -151,6 +151,70 @@ double compute_average_pair_distance(double *pos_array, double *charge_array, in
     return (sum_pair_distance * 2) / (N * (N - 1.));
 }
 
+void metropolis_step_one_particle(double *energy_array, double *pos_array, double *charge_array, double delta, double temperature, int n_particles, int space_dim, long *accepted_counter)
+{   
+    for (int n=0; n<n_particles; n++){
+        // Alocate an array of dj on the stack,
+        // this is used to keep track of the different direction and make the code independent on space dimension
+        double dj_array[space_dim];
+        // Select a random particle i
+        int i = (int)(drand48() * (n_particles-1));
+        // NOTE: right now I am computing old and new energy, each is O(N)
+        double old_i_energy = compute_one_particle_energy(i, pos_array, charge_array, n_particles, space_dim);
+
+        for (int j = 0; j < space_dim; j++)
+        {
+            // Random step in j direction between -delta and + delta
+            double dj = ((drand48() * 2) - 1) * delta;
+
+            // Refuse step if particle i in direction j out of the box
+            if (pos_array[c(i, j)] + dj > BOX_SIZE || pos_array[c(i, j)] + dj < 0)
+            {
+                return;
+            }
+            dj_array[j] = dj;
+        }
+        // Update position of particle i
+        for (int j = 0; j < space_dim; j++)
+        {
+            pos_array[c(i, j)] += dj_array[j];
+        }
+
+
+        /** NOTE: Since I am using compute_one_particle_energy I can not use the fact that the interaction between i and k
+            * is the same as k and i in order to cut the computation in half. Nevertheless it is usefull because in this
+            * way I can check out of the boundaries conditions for one particle at the time,
+            * instead of having to discard a full system step just because one particle
+            * felt off.
+            */
+        double new_i_energy = compute_one_particle_energy(i, pos_array, charge_array, n_particles, space_dim);
+
+        //double dE = new_i_energy - energy_array[i];
+        double dE = new_i_energy - old_i_energy;
+
+        // METROPOLIS ACCEPTANCE AND UPDATE energy_array
+        int accepted = 0;
+        double alpha = fmin(1, exp( -dE / temperature));
+        accepted = drand48() <= alpha;
+
+
+        // If the step is not accepted cancel the position update for the particle i
+        if (!accepted)
+        {
+            for (int j = 0; j < space_dim; j++)
+            {
+                pos_array[c(i, j)] -= dj_array[j];
+            }
+        }
+        else
+        {
+            // Update i_particle energy if step accepted
+            energy_array[i] = new_i_energy;
+            (*accepted_counter)++;
+        }
+    }
+}
+
 void metropolis_step(double *energy_array, double *pos_array, double *charge_array, double delta, double temperature, int n_particles, int space_dim, long *accepted_counter)
 {
     // Alocate an array of dj on the stack,
