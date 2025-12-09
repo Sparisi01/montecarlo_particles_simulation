@@ -9,6 +9,7 @@ __pycache__/
 *.cu
 *.gnuplot
 cuda/
+output/
 
 # Distribution / packaging
 .Python

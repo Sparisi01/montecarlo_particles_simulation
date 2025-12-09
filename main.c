@@ -80,13 +80,14 @@ float compute_one_particle_energy(int i, float *pos_array, float *charge_array, 
             continue;
         }
 
-        // Coulomb + lennar jones
-        energy += (charge_array[i] * charge_array[j]) / sqrtf(distance_square) + 1/pow(distance_square,4);
+        energy += (charge_array[i] * charge_array[j]) / sqrtf(distance_square); // Coulomb
+        energy += 1/pow(distance_square,4); // Hard core
     }
 
     return energy;
 }
 
+// Convert the energy array to the total energy
 float array_to_total_energy(float *energy_array, int n_particles)
 {
     float energy = 0;
@@ -100,7 +101,6 @@ float array_to_total_energy(float *energy_array, int n_particles)
 
 float metropolis_step(float *energy_array, float *pos_array, float *charge_array, float delta, float temperature, int n_particles, int space_dim)
 {
-
     // Alocate an array of dj on the stack,
     // this is used to keep track of the different direction
     float dj_array[space_dim];
@@ -198,33 +198,39 @@ int main(int argc, char const *argv[])
         energy_array[i] = compute_one_particle_energy(i, pos_array, charge_array, N, SPACE_DIM);
     }
 
-    // START Evaluate the execution time
-
+    // Save starting particle position
     FILE *start_position_file = fopen("./output/start_position_file.csv", "w");
     save_position_state(start_position_file, pos_array, N, SPACE_DIM);
 
     FILE *energy_file = fopen("./output/energy.csv", "w");
 
+    printf("Start energy: %f\n", array_to_total_energy(energy_array, N));
+    
+    // START Evaluate the execution time
     clock_t begin = clock();
 
-    printf("Start energy: %f\n", array_to_total_energy(energy_array, N));
+    
 
-    for (size_t i = 0; i < 10000; i++)
+    for (size_t i = 0; i < N_METROPOLIS_STEPS; i++)
     {
         metropolis_step(energy_array, pos_array, charge_array, 1e-1, 1, N, SPACE_DIM);
         fprintf(energy_file, "%lf\n", array_to_total_energy(energy_array, N));
     }
 
-    printf("End energy: %f\n", array_to_total_energy(energy_array, N));
+   
 
     clock_t end = clock();
-    float time_spent = (float)(end - begin) / CLOCKS_PER_SEC;
-    printf("Total time: %.0lf ms\n", time_spent * 1000);
 
     // END total time evaliation
 
+    printf("End energy: %f\n", array_to_total_energy(energy_array, N));
+
+    float time_spent = (float)(end - begin) / CLOCKS_PER_SEC;
+    printf("Total time: %.0lf ms\n", time_spent * 1000);
+
+    // Save ending particle position
     FILE *end_position_file = fopen("./output/end_position_file.csv", "w");
-        save_position_state(end_position_file, pos_array, N, SPACE_DIM);
+    save_position_state(end_position_file, pos_array, N, SPACE_DIM);
     
 
     free(pos_array);
@@ -234,6 +240,8 @@ int main(int argc, char const *argv[])
     free(energy_array);
 
     fclose(start_position_file);
+    fclose(end_position_file);
+    fclose(energy_file);
 
     return 0;
 }
