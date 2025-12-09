@@ -33,20 +33,20 @@ float compute_energy(float *pos_array, float *charge_array, int n_particles, int
 {
     float energy = 0;
 
-    for (size_t i = 0; i < n_particles - 1; i++)
+    for (int i = 0; i < n_particles - 1; i++)
     {
-        for (size_t j = i + 1; j < n_particles; j++)
+        for (int j = i + 1; j < n_particles; j++)
         {
             float distance_square = 0;
 
-            for (size_t k = 0; k < space_dim; k++)
+            for (int k = 0; k < space_dim; k++)
             {
                 distance_square += (pos_array[c(i, k)] - pos_array[c(j, k)]) * (pos_array[c(i, k)] - pos_array[c(j, k)]);
             }
 
             if (distance_square == 0)
             {
-                printf("WARNING: Overlapping particle found (i=%ld,j=%ld)\n", i, j);
+                printf("WARNING: Overlapping particle found (i=%d,j=%d)\n", i, j);
                 continue;
             }
 
@@ -54,6 +54,57 @@ float compute_energy(float *pos_array, float *charge_array, int n_particles, int
         }
     }
     return energy;
+}
+
+float compute_one_particle_energy(int i, float *pos_array, float *charge_array, int n_particles, int space_dim)
+{
+    float energy = 0;
+
+    for (int j = 0; j < n_particles; j++)
+    {
+        if (i == j) continue;
+
+        float distance_square = 0;
+
+        for (int k = 0; k < space_dim; k++)
+        {
+            distance_square += (pos_array[c(i, k)] - pos_array[c(j, k)]) * (pos_array[c(i, k)] - pos_array[c(j, k)]);
+        }
+
+        if (distance_square == 0)
+        {
+            printf("WARNING: Overlapping particle found (i=%d,j=%d)\n", i, j);
+            continue;
+        }
+
+        energy += (charge_array[i] * charge_array[j]) / sqrtf(distance_square);
+    }
+
+    return energy;
+}
+
+float metropolis_step(float *energy_array, float *pos_array, float delta, float temperature, int n_particles, int space_dim)
+{
+
+    float *dj_array = (float *)malloc(space_dim * sizeof(float));
+
+    // Update one particle at the time. Better to check box boundaries
+    for (int i = 0; i < n_particles; i++)
+    {
+        for (int j = 0; j < space_dim; j++)
+        {
+            float dj = (2 * rand() / (RAND_MAX + 1.) - 1) * delta;
+
+            // Refuse step if out of the box
+            if (pos_array[c(i, j)] + dj > BOX_SIZE || pos_array[c(i, j)] + dj < 0)
+            {
+                dj = 0;
+            }
+
+            pos_array[c(i, j)] += dj;
+            dj_array[j] = dj;
+        }
+    }
 }
 
 int main(int argc, char const *argv[])
@@ -83,6 +134,10 @@ int main(int argc, char const *argv[])
     if (mass_array == NULL)
         exit(EXIT_FAILURE);
 
+    float *energy_array = (float *)malloc(N * sizeof(float));
+    if (energy_array == NULL)
+        exit(EXIT_FAILURE);
+
     // Init arrays
     for (size_t i = 0; i < N; i++)
     {
@@ -90,7 +145,7 @@ int main(int argc, char const *argv[])
         {
             // Uniform position distribution inside the square box
             pos_array[c(i, j)] = rand() / (RAND_MAX + 1.) * BOX_SIZE;
-            vel_array[c(i, j)] = getRNDVelocity(1);
+            // vel_array[c(i, j)] = getRNDVelocity(1);
         }
 
         charge_array[i] = 1;
@@ -101,7 +156,14 @@ int main(int argc, char const *argv[])
 
     clock_t begin = clock();
 
-    float energy = compute_energy(pos_array, charge_array, N, SPACE_DIM);
+    float energy = 0;
+    for (size_t i = 0; i < N; i++)
+    {
+        energy_array[i] = compute_one_particle_energy(i, pos_array, charge_array, N, SPACE_DIM);
+        energy += energy_array[i];
+    }
+
+    energy /= 2;
 
     clock_t end = clock();
     float time_spent = (float)(end - begin) / CLOCKS_PER_SEC;
@@ -119,6 +181,7 @@ int main(int argc, char const *argv[])
     free(vel_array);
     free(mass_array);
     free(charge_array);
+    free(energy_array);
 
     fclose(position_file);
 
