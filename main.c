@@ -7,6 +7,16 @@
 #include "src/constants.c"
 #include "src/structures.c"
 
+// Generate velocities from boltzman distribution
+// using box muller
+float getRNDVelocity(float temperature)
+{
+    double x = rand() / (RAND_MAX + 1.);
+    double y = rand() / (RAND_MAX + 1.);
+
+    return sqrtf(temperature) * sqrt(-2 * log(1 - x)) * cos(2 * PI * y);
+}
+
 void save_position_state(FILE *file, float *pos_array, int n_particles, int space_dim)
 {
     for (size_t i = 0; i < n_particles; i++)
@@ -44,9 +54,9 @@ float compute_energy(float *pos_array, float *charge_array, int n_particles, int
             energy += (charge_array[i] * charge_array[j]) / sqrtf(distance_square);
         }
     }
-
     return energy;
 }
+
 
 int main(int argc, char const *argv[])
 {
@@ -83,19 +93,18 @@ int main(int argc, char const *argv[])
         {
             // Uniform position distribution inside the square box
             pos_array[c(i, j)] = rand() / (RAND_MAX - 1.) * BOX_SIZE;
-            vel_array[c(i, j)] = 0;
+            vel_array[c(i, j)] = getRNDVelocity(1);
         }
 
         charge_array[i] = 1;
         mass_array[i] = 1;
     }
 
-    // Evaluate the execution time
+    //START Evaluate the execution time
+
     clock_t begin = clock();
 
-    /*
-        EVERYTHING WE WILL WRITE
-    */
+    float energy = compute_energy(pos_array, charge_array, N, SPACE_DIM);
 
     clock_t end = clock();
 
@@ -103,12 +112,13 @@ int main(int argc, char const *argv[])
 
     printf("Total time: %.0lf ms\n", time_spent * 1000);
 
+    // END total time evaliation 
+
     FILE *position_file = fopen("./output/position_file.csv", "w");
-    FILE *results = fopen("./output/results.csv", "w");
 
     save_position_state(position_file, pos_array, N, SPACE_DIM);
 
-    printf("Coulomb energy: %f\n", compute_energy(pos_array, charge_array, N, SPACE_DIM));
+    printf("Energy: %f\n", energy);
     
     free(pos_array);
     free(vel_array);
@@ -119,3 +129,4 @@ int main(int argc, char const *argv[])
 
     return 0;
 }
+
