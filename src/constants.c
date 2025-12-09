@@ -3,7 +3,7 @@
 
 #define SEED 42
 
-#define N 5
+#define N 250
 #define BOX_SIZE 100
 #define SPACE_DIM 2
 
