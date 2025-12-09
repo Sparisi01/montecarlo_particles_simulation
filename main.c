@@ -83,7 +83,7 @@ float compute_one_particle_energy(int i, float *pos_array, float *charge_array, 
     return energy;
 }
 
-float metropolis_step(float *energy_array, float *pos_array, float delta, float temperature, int n_particles, int space_dim)
+float metropolis_step(float *energy_array, float *pos_array, float *charge_array, float delta, float temperature, int n_particles, int space_dim)
 {
 
     float *dj_array = (float *)malloc(space_dim * sizeof(float));
@@ -93,6 +93,7 @@ float metropolis_step(float *energy_array, float *pos_array, float delta, float 
     {
         for (int j = 0; j < space_dim; j++)
         {
+            // Random step in j direction between -delta and + delta
             float dj = (2 * rand() / (RAND_MAX + 1.) - 1) * delta;
 
             // Refuse step if out of the box
@@ -104,6 +105,11 @@ float metropolis_step(float *energy_array, float *pos_array, float delta, float 
             pos_array[c(i, j)] += dj;
             dj_array[j] = dj;
         }
+
+        float new_i_energy = compute_one_particle_energy(i, pos_array, charge_array, n_particles, space_dim);
+    
+        // METROPOLIS ACCEPTANCE AND UPDATE energy_array
+
     }
 }
 
