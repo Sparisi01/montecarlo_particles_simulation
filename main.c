@@ -25,38 +25,11 @@ void save_position_state(FILE *file, float *pos_array, int n_particles, int spac
         {
             fprintf(file, "%f", pos_array[c(i, j)]);
 
-            if(j != space_dim - 1)
+            if (j != space_dim - 1)
                 fprintf(file, ";");
         }
         fprintf(file, "\n");
     }
-}
-
-float compute_energy(float *pos_array, float *charge_array, int n_particles, int space_dim)
-{
-    float energy = 0;
-
-    for (int i = 0; i < n_particles - 1; i++)
-    {
-        for (int j = i + 1; j < n_particles; j++)
-        {
-            float distance_square = 0;
-
-            for (int k = 0; k < space_dim; k++)
-            {
-                distance_square += (pos_array[c(i, k)] - pos_array[c(j, k)]) * (pos_array[c(i, k)] - pos_array[c(j, k)]);
-            }
-
-            if (distance_square == 0)
-            {
-                printf("WARNING: Overlapping particle found (i=%d,j=%d)\n", i, j);
-                continue;
-            }
-
-            energy += (charge_array[i] * charge_array[j]) / sqrtf(distance_square);
-        }
-    }
-    return energy;
 }
 
 float compute_one_particle_energy(int i, float *pos_array, float *charge_array, int n_particles, int space_dim)
@@ -81,7 +54,7 @@ float compute_one_particle_energy(int i, float *pos_array, float *charge_array, 
         }
 
         energy += (charge_array[i] * charge_array[j]) / sqrtf(distance_square); // Coulomb
-        energy += 1/pow(distance_square,4); // Hard core
+        energy += 1 / pow(distance_square, 4);                                  // Hard core
     }
 
     return energy;
@@ -92,11 +65,12 @@ float array_to_total_energy(float *energy_array, int n_particles)
 {
     float energy = 0;
 
-    for(int i = 0; i<n_particles; i++){
+    for (int i = 0; i < n_particles; i++)
+    {
         energy += energy_array[i];
     }
 
-    return energy/2;
+    return energy / 2;
 }
 
 float metropolis_step(float *energy_array, float *pos_array, float *charge_array, float delta, float temperature, int n_particles, int space_dim)
@@ -111,11 +85,11 @@ float metropolis_step(float *energy_array, float *pos_array, float *charge_array
         for (int j = 0; j < space_dim; j++)
         {
             // Random step in j direction between -delta and + delta
-            float dj = (((rand() / (RAND_MAX + 1.))*2)-1)*delta;
-            
+            float dj = (((rand() / (RAND_MAX + 1.)) * 2) - 1) * delta;
+
             // Refuse step if out of the box
             if (pos_array[c(i, j)] + dj > BOX_SIZE || pos_array[c(i, j)] + dj < 0)
-            {   
+            {
                 dj = 0;
             }
 
@@ -141,7 +115,7 @@ float metropolis_step(float *energy_array, float *pos_array, float *charge_array
         }
         else
         {
-            // Update particle i energy if step accepted
+            // Update pi_article energy if step accepted
             energy_array[i] = new_i_energy;
         }
     }
@@ -151,7 +125,7 @@ int main(int argc, char const *argv[])
 {
     // Set seed for reproducibility
     srand(SEED);
-    
+
     int total_vel_pos_array_size = N * SPACE_DIM;
 
     // Positions and velocities are store in an array of size (N * SPACE_DIM) where
@@ -177,7 +151,7 @@ int main(int argc, char const *argv[])
     float *energy_array = (float *)malloc(N * sizeof(float));
     if (energy_array == NULL)
         exit(EXIT_FAILURE);
-    
+
     // Init arrays
     for (size_t i = 0; i < N; i++)
     {
@@ -188,7 +162,7 @@ int main(int argc, char const *argv[])
             // vel_array[c(i, j)] = getRNDVelocity(1);
         }
 
-        charge_array[i] = rand() / (RAND_MAX + 1.) > 0.5;
+        charge_array[i] = (2 * (rand() / (RAND_MAX + 1.) > 0.5)) - 1; // Value in {-1,1}
         mass_array[i] = 1;
     }
 
@@ -205,11 +179,11 @@ int main(int argc, char const *argv[])
     FILE *energy_file = fopen("./output/energy.csv", "w");
 
     printf("Start energy: %f\n", array_to_total_energy(energy_array, N));
-    
+
+    //----------------------------------
     // START Evaluate the execution time
     clock_t begin = clock();
-
-    
+    //----------------------------------
 
     for (size_t i = 0; i < N_METROPOLIS_STEPS; i++)
     {
@@ -217,11 +191,10 @@ int main(int argc, char const *argv[])
         fprintf(energy_file, "%lf\n", array_to_total_energy(energy_array, N));
     }
 
-   
-
+    //----------------------------------
     clock_t end = clock();
-
     // END total time evaliation
+    //----------------------------------
 
     printf("End energy: %f\n", array_to_total_energy(energy_array, N));
 
@@ -231,7 +204,6 @@ int main(int argc, char const *argv[])
     // Save ending particle position
     FILE *end_position_file = fopen("./output/end_position_file.csv", "w");
     save_position_state(end_position_file, pos_array, N, SPACE_DIM);
-    
 
     free(pos_array);
     free(vel_array);
