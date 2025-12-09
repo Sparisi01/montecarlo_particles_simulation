@@ -37,7 +37,6 @@ float compute_energy(float *pos_array, float *charge_array, int n_particles, int
     {
         for (size_t j = i + 1; j < n_particles; j++)
         {
-
             float distance_square = 0;
 
             for (size_t k = 0; k < space_dim; k++)
@@ -56,7 +55,6 @@ float compute_energy(float *pos_array, float *charge_array, int n_particles, int
     }
     return energy;
 }
-
 
 int main(int argc, char const *argv[])
 {
@@ -85,14 +83,13 @@ int main(int argc, char const *argv[])
     if (mass_array == NULL)
         exit(EXIT_FAILURE);
 
-        
     // Init arrays
     for (size_t i = 0; i < N; i++)
     {
         for (size_t j = 0; j < SPACE_DIM; j++)
         {
             // Uniform position distribution inside the square box
-            pos_array[c(i, j)] = rand() / (RAND_MAX - 1.) * BOX_SIZE;
+            pos_array[c(i, j)] = rand() / (RAND_MAX + 1.) * BOX_SIZE;
             vel_array[c(i, j)] = getRNDVelocity(1);
         }
 
@@ -100,26 +97,24 @@ int main(int argc, char const *argv[])
         mass_array[i] = 1;
     }
 
-    //START Evaluate the execution time
+    // START Evaluate the execution time
 
     clock_t begin = clock();
 
     float energy = compute_energy(pos_array, charge_array, N, SPACE_DIM);
 
     clock_t end = clock();
-
     float time_spent = (float)(end - begin) / CLOCKS_PER_SEC;
-
     printf("Total time: %.0lf ms\n", time_spent * 1000);
 
-    // END total time evaliation 
+    // END total time evaliation
 
     FILE *position_file = fopen("./output/position_file.csv", "w");
 
     save_position_state(position_file, pos_array, N, SPACE_DIM);
 
     printf("Energy: %f\n", energy);
-    
+
     free(pos_array);
     free(vel_array);
     free(mass_array);
@@ -129,4 +124,3 @@ int main(int argc, char const *argv[])
 
     return 0;
 }
-
