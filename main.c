@@ -7,8 +7,7 @@
 #include "src/constants.c"
 #include "src/structures.c"
 
-// Generate velocities from boltzman distribution
-// using box muller
+// Generate velocities from boltzman distribution using box muller
 float getRNDVelocity(float temperature)
 {
     double x = rand() / (RAND_MAX + 1.);
@@ -91,12 +90,12 @@ float compute_average_pair_distance(float *pos_array, float *charge_array, int n
                 distance_square += (pos_array[c(i, k)] - pos_array[c(j, k)]) * (pos_array[c(i, k)] - pos_array[c(j, k)]);
             }
 
-            if (distance_square == 0)
+            if (distance_square < 1e-8)
             {
                 printf("WARNING: Overlapping particle found (i=%d,j=%d)\n", i, j);
                 continue;
             }
-            if (charge_array[i] == 4 && charge_array[j] == -1)
+            if ((charge_array[i] == 4 && charge_array[j] == -1) || (charge_array[j] == 4 && charge_array[i] == -1))
                 fprintf(file_distances, "%lf\n", sqrtf(distance_square));
             sum_pair_distance += sqrtf(distance_square);
         }
@@ -119,7 +118,7 @@ float metropolis_step(float *energy_array, float *pos_array, float *charge_array
             // Random step in j direction between -delta and + delta
             float dj = (((rand() / (RAND_MAX + 1.)) * 2) - 1) * delta;
 
-            // Refuse step if out of the box
+            // Refuse step if particle i in direction j out of the box
             if (pos_array[c(i, j)] + dj > BOX_SIZE || pos_array[c(i, j)] + dj < 0)
             {
                 dj = 0;
@@ -129,10 +128,16 @@ float metropolis_step(float *energy_array, float *pos_array, float *charge_array
             dj_array[j] = dj;
         }
 
+        /** NOTE
+         * Since I am using compute_one_particle_energy I can not use the fact that the interaction between i and k
+         * is the same as k and i in order to cut the computation in half. Nevertheless it is usefull because in this 
+         * way I can check out of the boundaries conditions for one particle at the time,
+         * instead of having to discard a full system step just because one particle
+         * felt off.
+        */
         float new_i_energy = compute_one_particle_energy(i, pos_array, charge_array, n_particles, space_dim);
 
         // METROPOLIS ACCEPTANCE AND UPDATE energy_array
-
         int accepted = 0;
         float alpha = fmin(1, exp((energy_array[i] - new_i_energy) / temperature));
         accepted = rand() / (RAND_MAX + 1.) <= alpha;
@@ -164,7 +169,7 @@ void init_system(float *pos_array, float *charge_array, float *mass_array)
             // vel_array[c(i, j)] = getRNDVelocity(1);
         }
 
-        switch (i % 4)
+        switch (i % 5)
         {
         case 0:
             charge_array[i] = 4;
@@ -200,7 +205,7 @@ void init_system(float *pos_array, float *charge_array, float *mass_array)
 void print_progress(size_t current, size_t total, time_t start_time)
 {
     const int barWidth = 50;
-    float progress = (float) current / total;
+    float progress = (float)current / total;
     int filled = progress * barWidth;
 
     // Time elapsed
@@ -211,13 +216,14 @@ void print_progress(size_t current, size_t total, time_t start_time)
     double eta = (progress > 0.0) ? elapsed * (1.0 - progress) / progress : 0.0;
 
     // Conversion of ETA hh:mm:ss
-    int eta_h = (int) eta / 3600;
-    int eta_m = ((int) eta % 3600) / 60;
-    int eta_s = (int) eta % 60;
+    int eta_h = (int)eta / 3600;
+    int eta_m = ((int)eta % 3600) / 60;
+    int eta_s = (int)eta % 60;
 
     printf("\r[");
 
-    for (int i = 0; i < barWidth; i++) {
+    for (int i = 0; i < barWidth; i++)
+    {
         if (i < filled)
             printf("█");
         else if (i == filled)
@@ -231,7 +237,6 @@ void print_progress(size_t current, size_t total, time_t start_time)
 
     fflush(stdout);
 }
-
 
 int main(int argc, char const *argv[])
 {
@@ -305,12 +310,10 @@ int main(int argc, char const *argv[])
     printf("Total time: %.0lf ms\n", time_spent * 1000);
     // END total time evaliation
     //----------------------------------
-    
+
     printf("Average pair distance: %lf\n", compute_average_pair_distance(pos_array, charge_array, N, SPACE_DIM));
 
     printf("End energy: %f\n", array_to_total_energy(energy_array, N));
-
-    
 
     // Save ending particle position
     FILE *end_position_file = fopen("./output/end_position_file.csv", "w");
