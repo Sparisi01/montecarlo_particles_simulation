@@ -17,18 +17,15 @@ float getRNDVelocity(float temperature)
     return sqrtf(temperature) * sqrt(-2 * log(1 - x)) * cos(2 * PI * y);
 }
 
-void save_position_state(FILE *file, float *pos_array, int n_particles, int space_dim)
+void save_particle_state(FILE *file, float *pos_array, float *charge_array, int n_particles, int space_dim)
 {
     for (size_t i = 0; i < n_particles; i++)
     {
         for (size_t j = 0; j < space_dim; j++)
         {
-            fprintf(file, "%f", pos_array[c(i, j)]);
-
-            if (j != space_dim - 1)
-                fprintf(file, ";");
+            fprintf(file, "%f;", pos_array[c(i, j)]);
         }
-        fprintf(file, "\n");
+        fprintf(file, "%f\n", charge_array[i]);
     }
 }
 
@@ -38,7 +35,8 @@ float compute_one_particle_energy(int i, float *pos_array, float *charge_array, 
 
     for (int j = 0; j < n_particles; j++)
     {
-        if (i == j) continue;
+        if (i == j)
+            continue;
 
         float distance_square = 0;
 
@@ -47,7 +45,7 @@ float compute_one_particle_energy(int i, float *pos_array, float *charge_array, 
             distance_square += (pos_array[c(i, k)] - pos_array[c(j, k)]) * (pos_array[c(i, k)] - pos_array[c(j, k)]);
         }
 
-        if (distance_square == 0)
+        if (distance_square < 1e-8)
         {
             printf("WARNING: Overlapping particle found (i=%d,j=%d)\n", i, j);
             continue;
@@ -71,6 +69,40 @@ float array_to_total_energy(float *energy_array, int n_particles)
     }
 
     return energy / 2;
+}
+
+float compute_average_pair_distance(float *pos_array, float *charge_array, int n_particles, int space_dim)
+{
+    float sum_pair_distance = 0;
+    FILE *file_distances = fopen("./output/file_distances.csv", "w");
+
+    for (int i = 0; i < n_particles - 1; i++)
+    {
+
+        for (int j = i + 1; j < n_particles; j++)
+        {
+            if (i == j)
+                continue;
+
+            float distance_square = 0;
+
+            for (int k = 0; k < space_dim; k++)
+            {
+                distance_square += (pos_array[c(i, k)] - pos_array[c(j, k)]) * (pos_array[c(i, k)] - pos_array[c(j, k)]);
+            }
+
+            if (distance_square == 0)
+            {
+                printf("WARNING: Overlapping particle found (i=%d,j=%d)\n", i, j);
+                continue;
+            }
+            if (charge_array[i] == 4 && charge_array[j] == -1)
+                fprintf(file_distances, "%lf\n", sqrtf(distance_square));
+            sum_pair_distance += sqrtf(distance_square);
+        }
+    }
+
+    return (sum_pair_distance * 2) / (N * (N - 1.));
 }
 
 float metropolis_step(float *energy_array, float *pos_array, float *charge_array, float delta, float temperature, int n_particles, int space_dim)
@@ -115,11 +147,74 @@ float metropolis_step(float *energy_array, float *pos_array, float *charge_array
         }
         else
         {
-            // Update pi_article energy if step accepted
+            // Update i_particle energy if step accepted
             energy_array[i] = new_i_energy;
         }
     }
 }
+
+void init_system(float *pos_array, float *charge_array, float *mass_array)
+{
+    for (size_t i = 0; i < N; i++)
+    {
+        for (size_t j = 0; j < SPACE_DIM; j++)
+        {
+            // Uniform position distribution inside the square box
+            pos_array[c(i, j)] = rand() / (RAND_MAX + 1.) * BOX_SIZE;
+            // vel_array[c(i, j)] = getRNDVelocity(1);
+        }
+
+        switch (i % 4)
+        {
+        case 0:
+            charge_array[i] = 4;
+            break;
+
+        default:
+            charge_array[i] = -1;
+            break;
+        }
+
+        mass_array[i] = 1;
+    }
+}
+
+
+void print_progress_eta(size_t current, size_t total, time_t start_time)
+{
+    const int barWidth = 50;
+    float progress = (float) current / total;
+    int filled = progress * barWidth;
+
+    // Time elapsed
+    time_t now = time(NULL);
+    double elapsed = difftime(now, start_time);
+
+    // ETA stimation
+    double eta = (progress > 0.0) ? elapsed * (1.0 - progress) / progress : 0.0;
+
+    // Conversion of ETA hh:mm:ss
+    int eta_h = (int) eta / 3600;
+    int eta_m = ((int) eta % 3600) / 60;
+    int eta_s = (int) eta % 60;
+
+    printf("\r[");
+
+    for (int i = 0; i < barWidth; i++) {
+        if (i < filled)
+            printf("█");
+        else if (i == filled)
+            printf("▌");
+        else
+            printf(" ");
+    }
+
+    printf("] %5.1f%%  ETA: %02d:%02d:%02d",
+           progress * 100, eta_h, eta_m, eta_s);
+
+    fflush(stdout);
+}
+
 
 int main(int argc, char const *argv[])
 {
@@ -152,19 +247,8 @@ int main(int argc, char const *argv[])
     if (energy_array == NULL)
         exit(EXIT_FAILURE);
 
-    // Init arrays
-    for (size_t i = 0; i < N; i++)
-    {
-        for (size_t j = 0; j < SPACE_DIM; j++)
-        {
-            // Uniform position distribution inside the square box
-            pos_array[c(i, j)] = rand() / (RAND_MAX + 1.) * BOX_SIZE;
-            // vel_array[c(i, j)] = getRNDVelocity(1);
-        }
-
-        charge_array[i] = (2 * (rand() / (RAND_MAX + 1.) > 0.5)) - 1; // Value in {-1,1}
-        mass_array[i] = 1;
-    }
+    // Init system
+    init_system(pos_array, charge_array, mass_array);
 
     // Init energy array
     for (size_t i = 0; i < N; i++)
@@ -174,7 +258,7 @@ int main(int argc, char const *argv[])
 
     // Save starting particle position
     FILE *start_position_file = fopen("./output/start_position_file.csv", "w");
-    save_position_state(start_position_file, pos_array, N, SPACE_DIM);
+    save_particle_state(start_position_file, pos_array, charge_array, N, SPACE_DIM);
 
     FILE *energy_file = fopen("./output/energy.csv", "w");
 
@@ -187,23 +271,33 @@ int main(int argc, char const *argv[])
 
     for (size_t i = 0; i < N_METROPOLIS_STEPS; i++)
     {
-        metropolis_step(energy_array, pos_array, charge_array, 1e-1, 1, N, SPACE_DIM);
+        metropolis_step(energy_array, pos_array, charge_array, 0.5, 0.1, N, SPACE_DIM);
         fprintf(energy_file, "%lf\n", array_to_total_energy(energy_array, N));
+
+        // Progress Bar
+        if (i % PRINT_INTERVAL == 0)
+            print_progress(i, N_METROPOLIS_STEPS, begin);
     }
 
+    // Clear terminal
+    printf("\r\033[2K");
+    
     //----------------------------------
     clock_t end = clock();
+    float time_spent = (float)(end - begin) / CLOCKS_PER_SEC;
+    printf("Total time: %.0lf ms\n", time_spent * 1000);
     // END total time evaliation
     //----------------------------------
+    
+    printf("Average pair distance: %lf\n", compute_average_pair_distance(pos_array, charge_array, N, SPACE_DIM));
 
     printf("End energy: %f\n", array_to_total_energy(energy_array, N));
 
-    float time_spent = (float)(end - begin) / CLOCKS_PER_SEC;
-    printf("Total time: %.0lf ms\n", time_spent * 1000);
+    
 
     // Save ending particle position
     FILE *end_position_file = fopen("./output/end_position_file.csv", "w");
-    save_position_state(end_position_file, pos_array, N, SPACE_DIM);
+    save_particle_state(end_position_file, pos_array, charge_array, N, SPACE_DIM);
 
     free(pos_array);
     free(vel_array);
