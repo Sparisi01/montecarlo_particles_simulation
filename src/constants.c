@@ -4,9 +4,10 @@
 #define SEED 42
 
 #define N 500
-#define BOX_SIZE 10
+#define BOX_SIZE 100
 #define SPACE_DIM 2
-#define N_METROPOLIS_STEPS 50000
+#define N_METROPOLIS_STEPS 100000
+#define TEMPERATURE 0.1
 
 #define PRINT_INTERVAL (N_METROPOLIS_STEPS / 100) // Update bar every 1%
 

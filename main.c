@@ -10,8 +10,8 @@
 // Generate velocities from boltzman distribution using box muller
 double getRNDVelocity(double temperature)
 {
-    double x = rand() / (RAND_MAX + 1.);
-    double y = rand() / (RAND_MAX + 1.);
+    double x = drand48();
+    double y = drand48();
 
     return sqrtf(temperature) * sqrt(-2 * log(1 - x)) * cos(2 * PI * y);
 }
@@ -46,12 +46,12 @@ double compute_one_particle_energy(int i, double *pos_array, double *charge_arra
 
         if (distance_square < 1e-6)
         {
-            printf("WARNING: Overlapping particle found (i=%d,j=%d)\n", i, j);
+            printf("\r\033[2K WARNING: Overlapping particle found (i=%d,j=%d)\n", i, j);
             continue;
         }
 
         energy += (charge_array[i] * charge_array[j]) / sqrt(distance_square); // Coulomb
-        energy += 1 / distance_square;                                  // Hard core
+        energy += 1 / distance_square;                                         // Hard core
     }
 
     return energy;
@@ -92,7 +92,7 @@ double compute_average_pair_distance(double *pos_array, double *charge_array, in
 
             if (distance_square < 1e-8)
             {
-                printf("WARNING: Overlapping particle found (i=%d,j=%d)\n", i, j);
+                printf("\r\033[2K WARNING: Overlapping particle found (i=%d,j=%d)\n", i, j);
                 continue;
             }
             if ((charge_array[i] == 4 && charge_array[j] == -1) || (charge_array[j] == 4 && charge_array[i] == -1))
@@ -116,7 +116,7 @@ void metropolis_step(double *energy_array, double *pos_array, double *charge_arr
         for (int j = 0; j < space_dim; j++)
         {
             // Random step in j direction between -delta and + delta
-            double dj = (((rand() / (RAND_MAX + 1.)) * 2) - 1) * delta;
+            double dj = ((drand48() * 2) - 1) * delta;
 
             // Refuse step if particle i in direction j out of the box
             if (pos_array[c(i, j)] + dj > BOX_SIZE || pos_array[c(i, j)] + dj < 0)
@@ -140,7 +140,7 @@ void metropolis_step(double *energy_array, double *pos_array, double *charge_arr
         // METROPOLIS ACCEPTANCE AND UPDATE energy_array
         int accepted = 0;
         double alpha = fmin(1, exp((energy_array[i] - new_i_energy) / temperature));
-        accepted = rand() / (RAND_MAX + 1.) <= alpha;
+        accepted = drand48() <= alpha;
 
         // If the step is not accepted cancel the position update for the particle i
         if (!accepted)
@@ -165,7 +165,7 @@ void init_system(double *pos_array, double *charge_array, double *mass_array)
         for (size_t j = 0; j < SPACE_DIM; j++)
         {
             // Uniform position distribution inside the square box
-            pos_array[c(i, j)] = rand() / (RAND_MAX + 1.) * BOX_SIZE;
+            pos_array[c(i, j)] = drand48() * BOX_SIZE;
             // vel_array[c(i, j)] = getRNDVelocity(1);
         }
 
@@ -241,7 +241,7 @@ void print_progress(size_t current, size_t total, clock_t start_time)
 int main(int argc, char const *argv[])
 {
     // Set seed for reproducibility
-    srand(SEED);
+    srand48(SEED);
 
     int total_vel_pos_array_size = N * SPACE_DIM;
 
@@ -293,7 +293,7 @@ int main(int argc, char const *argv[])
 
     for (size_t i = 0; i < N_METROPOLIS_STEPS; i++)
     {
-        metropolis_step(energy_array, pos_array, charge_array, 0.5, 0.1, N, SPACE_DIM);
+        metropolis_step(energy_array, pos_array, charge_array, 0.5, TEMPERATURE, N, SPACE_DIM);
         fprintf(energy_file, "%lf\n", array_to_total_energy(energy_array, N));
 
         // Progress Bar
