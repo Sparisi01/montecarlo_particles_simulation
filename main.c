@@ -8,7 +8,7 @@
 #include "src/structures.c"
 
 // Generate velocities from boltzman distribution using box muller
-float getRNDVelocity(float temperature)
+double getRNDVelocity(double temperature)
 {
     double x = rand() / (RAND_MAX + 1.);
     double y = rand() / (RAND_MAX + 1.);
@@ -16,7 +16,7 @@ float getRNDVelocity(float temperature)
     return sqrtf(temperature) * sqrt(-2 * log(1 - x)) * cos(2 * PI * y);
 }
 
-void save_particle_state(FILE *file, float *pos_array, float *charge_array, int n_particles, int space_dim)
+void save_particle_state(FILE *file, double *pos_array, double *charge_array, int n_particles, int space_dim)
 {
     for (size_t i = 0; i < n_particles; i++)
     {
@@ -28,39 +28,39 @@ void save_particle_state(FILE *file, float *pos_array, float *charge_array, int 
     }
 }
 
-float compute_one_particle_energy(int i, float *pos_array, float *charge_array, int n_particles, int space_dim)
+double compute_one_particle_energy(int i, double *pos_array, double *charge_array, int n_particles, int space_dim)
 {
-    float energy = 0;
+    double energy = 0;
 
     for (int j = 0; j < n_particles; j++)
     {
         if (i == j)
             continue;
 
-        float distance_square = 0;
+        double distance_square = 0;
 
         for (int k = 0; k < space_dim; k++)
         {
             distance_square += (pos_array[c(i, k)] - pos_array[c(j, k)]) * (pos_array[c(i, k)] - pos_array[c(j, k)]);
         }
 
-        if (distance_square < 1e-8)
+        if (distance_square < 1e-6)
         {
             printf("WARNING: Overlapping particle found (i=%d,j=%d)\n", i, j);
             continue;
         }
 
-        energy += (charge_array[i] * charge_array[j]) / sqrtf(distance_square); // Coulomb
-        energy += 1 / pow(distance_square, 4);                                  // Hard core
+        energy += (charge_array[i] * charge_array[j]) / sqrt(distance_square); // Coulomb
+        energy += 1 / distance_square;                                  // Hard core
     }
 
     return energy;
 }
 
 // Convert the energy array to the total energy
-float array_to_total_energy(float *energy_array, int n_particles)
+double array_to_total_energy(double *energy_array, int n_particles)
 {
-    float energy = 0;
+    double energy = 0;
 
     for (int i = 0; i < n_particles; i++)
     {
@@ -70,9 +70,9 @@ float array_to_total_energy(float *energy_array, int n_particles)
     return energy / 2;
 }
 
-float compute_average_pair_distance(float *pos_array, float *charge_array, int n_particles, int space_dim)
+double compute_average_pair_distance(double *pos_array, double *charge_array, int n_particles, int space_dim)
 {
-    float sum_pair_distance = 0;
+    double sum_pair_distance = 0;
     FILE *file_distances = fopen("./output/file_distances.csv", "w");
 
     for (int i = 0; i < n_particles - 1; i++)
@@ -83,7 +83,7 @@ float compute_average_pair_distance(float *pos_array, float *charge_array, int n
             if (i == j)
                 continue;
 
-            float distance_square = 0;
+            double distance_square = 0;
 
             for (int k = 0; k < space_dim; k++)
             {
@@ -96,19 +96,19 @@ float compute_average_pair_distance(float *pos_array, float *charge_array, int n
                 continue;
             }
             if ((charge_array[i] == 4 && charge_array[j] == -1) || (charge_array[j] == 4 && charge_array[i] == -1))
-                fprintf(file_distances, "%lf\n", sqrtf(distance_square));
-            sum_pair_distance += sqrtf(distance_square);
+                fprintf(file_distances, "%lf\n", sqrt(distance_square));
+            sum_pair_distance += sqrt(distance_square);
         }
     }
 
     return (sum_pair_distance * 2) / (N * (N - 1.));
 }
 
-float metropolis_step(float *energy_array, float *pos_array, float *charge_array, float delta, float temperature, int n_particles, int space_dim)
+void metropolis_step(double *energy_array, double *pos_array, double *charge_array, double delta, double temperature, int n_particles, int space_dim)
 {
     // Alocate an array of dj on the stack,
     // this is used to keep track of the different direction
-    float dj_array[space_dim];
+    double dj_array[space_dim];
 
     // Update one particle at the time. Better to check box boundaries
     for (int i = 0; i < n_particles; i++)
@@ -116,7 +116,7 @@ float metropolis_step(float *energy_array, float *pos_array, float *charge_array
         for (int j = 0; j < space_dim; j++)
         {
             // Random step in j direction between -delta and + delta
-            float dj = (((rand() / (RAND_MAX + 1.)) * 2) - 1) * delta;
+            double dj = (((rand() / (RAND_MAX + 1.)) * 2) - 1) * delta;
 
             // Refuse step if particle i in direction j out of the box
             if (pos_array[c(i, j)] + dj > BOX_SIZE || pos_array[c(i, j)] + dj < 0)
@@ -130,16 +130,16 @@ float metropolis_step(float *energy_array, float *pos_array, float *charge_array
 
         /** NOTE
          * Since I am using compute_one_particle_energy I can not use the fact that the interaction between i and k
-         * is the same as k and i in order to cut the computation in half. Nevertheless it is usefull because in this 
+         * is the same as k and i in order to cut the computation in half. Nevertheless it is usefull because in this
          * way I can check out of the boundaries conditions for one particle at the time,
          * instead of having to discard a full system step just because one particle
          * felt off.
-        */
-        float new_i_energy = compute_one_particle_energy(i, pos_array, charge_array, n_particles, space_dim);
+         */
+        double new_i_energy = compute_one_particle_energy(i, pos_array, charge_array, n_particles, space_dim);
 
         // METROPOLIS ACCEPTANCE AND UPDATE energy_array
         int accepted = 0;
-        float alpha = fmin(1, exp((energy_array[i] - new_i_energy) / temperature));
+        double alpha = fmin(1, exp((energy_array[i] - new_i_energy) / temperature));
         accepted = rand() / (RAND_MAX + 1.) <= alpha;
 
         // If the step is not accepted cancel the position update for the particle i
@@ -158,7 +158,7 @@ float metropolis_step(float *energy_array, float *pos_array, float *charge_array
     }
 }
 
-void init_system(float *pos_array, float *charge_array, float *mass_array)
+void init_system(double *pos_array, double *charge_array, double *mass_array)
 {
     for (size_t i = 0; i < N; i++)
     {
@@ -202,14 +202,14 @@ void init_system(float *pos_array, float *charge_array, float *mass_array)
  *   Call this function periodically inside a loop to update the progress bar without
  *   significantly impacting performance.
  */
-void print_progress(size_t current, size_t total, time_t start_time)
+void print_progress(size_t current, size_t total, clock_t start_time)
 {
     const int barWidth = 50;
-    float progress = (float)current / total;
+    double progress = (double)current / total;
     int filled = progress * barWidth;
 
     // Time elapsed
-    time_t now = clock();
+    clock_t now = clock();
     double elapsed = (double)(now - start_time) / CLOCKS_PER_SEC;
 
     // ETA stimation
@@ -249,23 +249,23 @@ int main(int argc, char const *argv[])
     // the j component of the i particle is stored at index (SPACE_DIM * i + j).
     // In order to retrieve the correct index for component j of particle i use the macro "c(i,j)"
 
-    float *pos_array = (float *)malloc(total_vel_pos_array_size * sizeof(float));
+    double *pos_array = (double *)malloc(total_vel_pos_array_size * sizeof(double));
     if (pos_array == NULL)
         exit(EXIT_FAILURE);
 
-    float *vel_array = (float *)malloc(total_vel_pos_array_size * sizeof(float));
+    double *vel_array = (double *)malloc(total_vel_pos_array_size * sizeof(double));
     if (vel_array == NULL)
         exit(EXIT_FAILURE);
 
-    float *charge_array = (float *)malloc(N * sizeof(float));
+    double *charge_array = (double *)malloc(N * sizeof(double));
     if (charge_array == NULL)
         exit(EXIT_FAILURE);
 
-    float *mass_array = (float *)malloc(N * sizeof(float));
+    double *mass_array = (double *)malloc(N * sizeof(double));
     if (mass_array == NULL)
         exit(EXIT_FAILURE);
 
-    float *energy_array = (float *)malloc(N * sizeof(float));
+    double *energy_array = (double *)malloc(N * sizeof(double));
     if (energy_array == NULL)
         exit(EXIT_FAILURE);
 
@@ -306,7 +306,7 @@ int main(int argc, char const *argv[])
 
     //----------------------------------
     clock_t end = clock();
-    float time_spent = (float)(end - begin) / CLOCKS_PER_SEC;
+    double time_spent = (double)(end - begin) / CLOCKS_PER_SEC;
     printf("Total time: %.0lf ms\n", time_spent * 1000);
     // END total time evaliation
     //----------------------------------
