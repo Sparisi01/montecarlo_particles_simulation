@@ -179,16 +179,33 @@ void init_system(float *pos_array, float *charge_array, float *mass_array)
     }
 }
 
-
-void print_progress_eta(size_t current, size_t total, time_t start_time)
+/*
+ * Prints a terminal progress bar with percentage and estimated time remaining (ETA).
+ *
+ * Parameters:
+ *   current     – current iteration (0 … total)
+ *   total       – total number of iterations
+ *   start_time  – the time (time_t) when the process started; used to compute ETA
+ *
+ * Behavior:
+ *   - The function prints a 50-character progress bar using full block characters (█)
+ *     and a partial block cursor (▌).
+ *   - It overwrites the same terminal line using '\r'.
+ *   - ETA is computed from elapsed time and current progress and displayed as HH:MM:SS.
+ *
+ * Usage:
+ *   Call this function periodically inside a loop to update the progress bar without
+ *   significantly impacting performance.
+ */
+void print_progress(size_t current, size_t total, time_t start_time)
 {
     const int barWidth = 50;
     float progress = (float) current / total;
     int filled = progress * barWidth;
 
     // Time elapsed
-    time_t now = time(NULL);
-    double elapsed = difftime(now, start_time);
+    time_t now = clock();
+    double elapsed = (double)(now - start_time) / CLOCKS_PER_SEC;
 
     // ETA stimation
     double eta = (progress > 0.0) ? elapsed * (1.0 - progress) / progress : 0.0;
@@ -209,7 +226,7 @@ void print_progress_eta(size_t current, size_t total, time_t start_time)
             printf(" ");
     }
 
-    printf("] %5.1f%%  ETA: %02d:%02d:%02d",
+    printf("] %5.1f%%  ETA: %02d:%02d:%02d (hh:mm:ss)",
            progress * 100, eta_h, eta_m, eta_s);
 
     fflush(stdout);
@@ -281,7 +298,7 @@ int main(int argc, char const *argv[])
 
     // Clear terminal
     printf("\r\033[2K");
-    
+
     //----------------------------------
     clock_t end = clock();
     float time_spent = (float)(end - begin) / CLOCKS_PER_SEC;
