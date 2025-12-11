@@ -10,6 +10,7 @@ __pycache__/
 *.gnuplot
 cuda/
 output/
+images/
 
 # Distribution / packaging
 .Python

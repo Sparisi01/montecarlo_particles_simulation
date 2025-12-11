@@ -393,8 +393,11 @@ int main(int argc, char const *argv[])
         exit(EXIT_FAILURE);
 
     FILE *start_position_file = fopen("./output/start_position_file.csv", "w");
-    if (start_position_file == NULL)
+    if (start_position_file == NULL){
+        printf("No output folder");
         exit(EXIT_FAILURE);
+    }
+        
     
     FILE *end_position_file = fopen("./output/end_position_file.csv", "w");
     if (end_position_file == NULL)
