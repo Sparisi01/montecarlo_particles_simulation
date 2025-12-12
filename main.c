@@ -47,9 +47,9 @@ static inline double pair_potential(double qi, double qj, double r2)
     double sigma_12 = sigma_6 * sigma_6;
 
     double V_coulomb = K_COUL * qi * qj * inv_r;
-    //double V_Lennar_Jones = 4.0 * EPSILON * (sigma_12 * inv_r12 - sigma_6 * inv_r6);
-    double V_quadratic = inv_r4;
-    
+    // double V_Lennar_Jones = 4.0 * EPSILON * (sigma_12 * inv_r12 - sigma_6 * inv_r6);
+    double V_quadratic = inv_r4 * inv_r4;
+
     return V_coulomb + V_quadratic;
 }
 
@@ -85,7 +85,7 @@ double compute_one_particle_energy(int i, double *pos_array, double *charge_arra
 
     // #pragma omp parallel for reduction(+:energy)
     for (int j = 0; j < n_particles; j++)
-    {   
+    {
         // Avoid self interaction
         if (i == j)
             continue;
@@ -152,13 +152,14 @@ double compute_average_pair_distance(double *pos_array, double *charge_array, in
 }
 
 void metropolis_step_one_particle(double *energy_array, double *pos_array, double *charge_array, double delta, double temperature, int n_particles, int space_dim, long *accepted_counter)
-{   
-    for (int n=0; n<n_particles; n++){
+{
+    for (int n = 0; n < n_particles; n++)
+    {
         // Alocate an array of dj on the stack,
         // this is used to keep track of the different direction and make the code independent on space dimension
         double dj_array[space_dim];
         // Select a random particle i
-        int i = (int)(drand48() * (n_particles-1));
+        int i = (int)(drand48() * (n_particles - 1));
         // NOTE: right now I am computing old and new energy, each is O(N)
         double old_i_energy = compute_one_particle_energy(i, pos_array, charge_array, n_particles, space_dim);
 
@@ -180,23 +181,21 @@ void metropolis_step_one_particle(double *energy_array, double *pos_array, doubl
             pos_array[c(i, j)] += dj_array[j];
         }
 
-
         /** NOTE: Since I am using compute_one_particle_energy I can not use the fact that the interaction between i and k
-            * is the same as k and i in order to cut the computation in half. Nevertheless it is usefull because in this
-            * way I can check out of the boundaries conditions for one particle at the time,
-            * instead of having to discard a full system step just because one particle
-            * felt off.
-            */
+         * is the same as k and i in order to cut the computation in half. Nevertheless it is usefull because in this
+         * way I can check out of the boundaries conditions for one particle at the time,
+         * instead of having to discard a full system step just because one particle
+         * felt off.
+         */
         double new_i_energy = compute_one_particle_energy(i, pos_array, charge_array, n_particles, space_dim);
 
-        //double dE = new_i_energy - energy_array[i];
+        // double dE = new_i_energy - energy_array[i];
         double dE = new_i_energy - old_i_energy;
 
         // METROPOLIS ACCEPTANCE AND UPDATE energy_array
         int accepted = 0;
-        double alpha = fmin(1, exp( -dE / temperature));
+        double alpha = fmin(1, exp(-dE / temperature));
         accepted = drand48() <= alpha;
-
 
         // If the step is not accepted cancel the position update for the particle i
         if (!accepted)
@@ -240,7 +239,12 @@ void metropolis_step(double *energy_array, double *pos_array, double *charge_arr
             }
 
             pos_array[c(i, j)] += dj;
-            dj_array[j] = dj;
+        }
+
+        // Update position of particle i
+        for (int j = 0; j < space_dim; j++)
+        {
+            pos_array[c(i, j)] += dj_array[j];
         }
 
         /** NOTE: Since I am using compute_one_particle_energy I can not use the fact that the interaction between i and k
@@ -251,14 +255,13 @@ void metropolis_step(double *energy_array, double *pos_array, double *charge_arr
          */
         double new_i_energy = compute_one_particle_energy(i, pos_array, charge_array, n_particles, space_dim);
 
-        //double dE = new_i_energy - energy_array[i];
+        // double dE = new_i_energy - energy_array[i];
         double dE = new_i_energy - old_i_energy;
 
         // METROPOLIS ACCEPTANCE AND UPDATE energy_array
         int accepted = 0;
-        double alpha = fmin(1, exp( -dE / temperature));
+        double alpha = fmin(1, exp(-dE / temperature));
         accepted = drand48() <= alpha;
-
 
         // If the step is not accepted cancel the position update for the particle i
         if (!accepted)
@@ -288,10 +291,10 @@ void init_system(double *pos_array, double *charge_array, double *mass_array)
             // vel_array[c(i, j)] = getRNDVelocity(1);
         }
 
-        switch (i % 5)
+        switch (i % 3)
         {
         case 0:
-            charge_array[i] = 4;
+            charge_array[i] = 2;
             break;
 
         default:
@@ -366,7 +369,6 @@ int main(int argc, char const *argv[])
 
     int total_vel_pos_array_size = N * SPACE_DIM;
 
-
     //-------------------------------------------
     // Positions and velocities are store in an array of size (N * SPACE_DIM) where
     // the j component of the i particle is stored at index (SPACE_DIM * i + j).
@@ -393,12 +395,12 @@ int main(int argc, char const *argv[])
         exit(EXIT_FAILURE);
 
     FILE *start_position_file = fopen("./output/start_position_file.csv", "w");
-    if (start_position_file == NULL){
+    if (start_position_file == NULL)
+    {
         printf("No output folder");
         exit(EXIT_FAILURE);
     }
-        
-    
+
     FILE *end_position_file = fopen("./output/end_position_file.csv", "w");
     if (end_position_file == NULL)
         exit(EXIT_FAILURE);
@@ -408,7 +410,7 @@ int main(int argc, char const *argv[])
         exit(EXIT_FAILURE);
 
     //-------------------------------------------
-    
+
     // Init system
     init_system(pos_array, charge_array, mass_array);
 

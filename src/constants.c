@@ -6,7 +6,7 @@
 #define c(i, j) (SPACE_DIM * i + j)
 
 // Simulation Parameters
-#define N 1000
+#define N 600
 #define SPACE_DIM 2
 #define BOX_SIZE 10
 #define N_METROPOLIS_STEPS 100000
