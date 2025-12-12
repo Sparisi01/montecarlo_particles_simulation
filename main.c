@@ -137,27 +137,24 @@ double compute_average_pair_distance(double *pos_array, double *charge_array, in
                 distance_square += (pos_array[c(i, k)] - pos_array[c(j, k)]) * (pos_array[c(i, k)] - pos_array[c(j, k)]);
             }
 
-            if (distance_square < 1e-8)
-            {
-                printf("\r\033[2K WARNING: Overlapping particle found (i=%d,j=%d)\n", i, j);
-                continue;
-            }
-            if ((charge_array[i] == 4 && charge_array[j] == -1) || (charge_array[j] == 4 && charge_array[i] == -1))
+            if ((charge_array[i] == 2 && charge_array[j] == -1) || (charge_array[j] == 2 && charge_array[i] == -1))
                 fprintf(file_distances, "%lf\n", sqrt(distance_square));
             sum_pair_distance += sqrt(distance_square);
         }
     }
 
-    return (sum_pair_distance * 2) / (N * (N - 1.));
+    return sum_pair_distance;
 }
 
 void metropolis_step_one_particle(double *energy_array, double *pos_array, double *charge_array, double delta, double temperature, int n_particles, int space_dim, long *accepted_counter)
 {
+    // Alocate an array of dj on the stack,
+    // this is used to keep track of the different direction and make the code independent on space dimension
+    double dj_array[space_dim];
+
     for (int n = 0; n < n_particles; n++)
     {
-        // Alocate an array of dj on the stack,
-        // this is used to keep track of the different direction and make the code independent on space dimension
-        double dj_array[space_dim];
+
         // Select a random particle i
         int i = (int)(drand48() * (n_particles - 1));
         // NOTE: right now I am computing old and new energy, each is O(N)
@@ -224,6 +221,8 @@ void metropolis_step(double *energy_array, double *pos_array, double *charge_arr
     for (int i = 0; i < n_particles; i++)
     {
 
+        int out_of_box = 0;
+
         // NOTE: right now I am computing old and new energy, each is O(N)
         double old_i_energy = compute_one_particle_energy(i, pos_array, charge_array, n_particles, space_dim);
 
@@ -235,16 +234,20 @@ void metropolis_step(double *energy_array, double *pos_array, double *charge_arr
             // Refuse step if particle i in direction j out of the box
             if (pos_array[c(i, j)] + dj > BOX_SIZE || pos_array[c(i, j)] + dj < 0)
             {
-                dj = 0;
+                out_of_box = 1;
+                continue;
             }
 
-            pos_array[c(i, j)] += dj;
+            dj_array[j] = dj;
         }
 
         // Update position of particle i
-        for (int j = 0; j < space_dim; j++)
+        if (out_of_box == 0)
         {
-            pos_array[c(i, j)] += dj_array[j];
+            for (int j = 0; j < space_dim; j++)
+            {
+                pos_array[c(i, j)] += dj_array[j];
+            }
         }
 
         /** NOTE: Since I am using compute_one_particle_energy I can not use the fact that the interaction between i and k
@@ -347,12 +350,10 @@ void print_progress(size_t current, size_t total, clock_t start_time)
 
     for (int i = 0; i < barWidth; i++)
     {
-        if (i < filled)
-            printf("█");
-        else if (i == filled)
-            printf("▌");
+        if (i <= filled)
+            printf("#");
         else
-            printf(" ");
+            printf(".");
     }
 
     printf("] %5.1f%%  ETA: %02d:%02d:%02d (hh:mm:ss)",
@@ -437,7 +438,10 @@ int main(int argc, char const *argv[])
 
         // Progress Bar
         if (i % PRINT_INTERVAL == 0)
+        {
             print_progress(i, N_METROPOLIS_STEPS, begin);
+            fflush(energy_file);
+        }
     }
 
     // Clear terminal
