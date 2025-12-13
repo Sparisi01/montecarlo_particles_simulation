@@ -7,6 +7,7 @@
 
 #include "src/constants.c"
 #include "src/structures.c"
+#include "src/periodic_boundaries.c"
 
 // Generate velocities from boltzman distribution using box muller
 double getRNDVelocity(double temperature)
@@ -137,8 +138,6 @@ double compute_average_pair_distance(double *pos_array, double *charge_array, in
                 distance_square += (pos_array[c(i, k)] - pos_array[c(j, k)]) * (pos_array[c(i, k)] - pos_array[c(j, k)]);
             }
 
-            if ((charge_array[i] == 2 && charge_array[j] == -1) || (charge_array[j] == 2 && charge_array[i] == -1))
-                fprintf(file_distances, "%lf\n", sqrt(distance_square));
             sum_pair_distance += sqrt(distance_square);
         }
     }
@@ -294,10 +293,10 @@ void init_system(double *pos_array, double *charge_array, double *mass_array)
             // vel_array[c(i, j)] = getRNDVelocity(1);
         }
 
-        switch (i % 3)
+        switch (i % 2)
         {
         case 0:
-            charge_array[i] = 2;
+            charge_array[i] = 1;
             break;
 
         default:
@@ -319,8 +318,7 @@ void init_system(double *pos_array, double *charge_array, double *mass_array)
  *   start_time  – the time (time_t) when the process started; used to compute ETA
  *
  * Behavior:
- *   - The function prints a 50-character progress bar using full block characters (█)
- *     and a partial block cursor (▌).
+ *   - The function prints a character progress bar using "#" character.
  *   - It overwrites the same terminal line using '\r'.
  *   - ETA is computed from elapsed time and current progress and displayed as HH:MM:SS.
  *
@@ -330,7 +328,7 @@ void init_system(double *pos_array, double *charge_array, double *mass_array)
  */
 void print_progress(size_t current, size_t total, clock_t start_time)
 {
-    const int barWidth = 50;
+    const int barWidth = 20;
     double progress = (double)current / total;
     int filled = progress * barWidth;
 
@@ -367,6 +365,12 @@ int main(int argc, char const *argv[])
     // omp_set_num_threads(8);
     //  Set seed for reproducibility
     srand48(SEED);
+
+    if (TEMPERATURE <= 0)
+    {
+        printf("ERROR: Temperature must be positive");
+        exit(EXIT_FAILURE);
+    }
 
     int total_vel_pos_array_size = N * SPACE_DIM;
 
@@ -433,8 +437,7 @@ int main(int argc, char const *argv[])
 
     for (size_t i = 0; i < N_METROPOLIS_STEPS; i++)
     {
-        metropolis_step(energy_array, pos_array, charge_array, STEP_SIZE, TEMPERATURE, N, SPACE_DIM, &accepted_steps);
-        fprintf(energy_file, "%lf\n", array_to_total_energy(energy_array, N));
+        pb_metropolis_step(pos_array, charge_array, STEP_SIZE, TEMPERATURE, N, SPACE_DIM, &accepted_steps, BOX_SIZE);
 
         // Progress Bar
         if (i % PRINT_INTERVAL == 0)
@@ -442,6 +445,13 @@ int main(int argc, char const *argv[])
             print_progress(i, N_METROPOLIS_STEPS, begin);
             fflush(energy_file);
         }
+
+        // Init energy array
+        for (size_t i = 0; i < N; i++)
+        {
+            energy_array[i] = pb_compute_one_particle_energy(i, pos_array, charge_array, N, SPACE_DIM, BOX_SIZE);
+        }
+        fprintf(energy_file, "%lf\n", array_to_total_energy(energy_array, N));
     }
 
     // Clear terminal
