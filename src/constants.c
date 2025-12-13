@@ -18,5 +18,6 @@
 #define SIGMA 0.05 // Zero-crossing distance
 #define K_COUL 1.0 // Coulomb prefactor (1/(4*pi*eps0) if SI)
 #define PI 3.14159265359
+#define SQRT_PI 1.772453851
 
 #endif

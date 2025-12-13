@@ -128,6 +128,11 @@ double pb_compute_one_particle_energy(int i, const double *pos_array, const doub
     return energy_i;
 }
 
+double pb_compute_tot_energy()
+{
+    return 0;
+}
+
 void pb_metropolis_step(double *pos_array, const double *charge_array, double delta, double temperature, int n_particles, int space_dim, long *accepted_counter, double box_size)
 {
     // Alocate an array of dj on the stack,
@@ -178,6 +183,71 @@ void pb_metropolis_step(double *pos_array, const double *charge_array, double de
             }
         }
     }
+}
+
+double pb_metropolis_step_all_system(double old_energy, double *pos_array, const double *charge_array, double delta, double temperature, int n_particles, int space_dim, long *accepted_counter, double box_size)
+{
+    // Save old position configuration
+    // NOTE - This memory gets never free
+    static double *old_pos_array = NULL;
+    size_t total_array_size = sizeof(double) * n_particles * space_dim;
+
+    if (old_pos_array == NULL)
+    {
+        old_pos_array = (double *)malloc(total_array_size);
+        if (old_pos_array == NULL)
+        {
+            fprintf(stderr, "Memory allocation failed for old_pos_array\n");
+            return -1;
+        }
+    }
+
+    // Copy positions from pos_array to old_pos_array
+    memcpy(old_pos_array, pos_array, total_array_size);
+
+    // Update system: try to move each particle
+    for (int i = 0; i < n_particles; i++)
+    {
+        for (int j = 0; j < space_dim; j++)
+        {
+            // Random step in j direction between -delta and + delta
+            double dj = ((drand48() * 2) - 1) * delta;
+
+            // NOTE: In periodic boundaries conditions there is no need to check for boundaries
+            pos_array[c(i, j)] += dj;
+        }
+    }
+
+    // Compute the new energy
+    double new_energy = pb_compute_total_energy();
+    double dE = new_energy - old_energy;
+
+    // Metropolis acceptance criterion
+    int accepted = 0;
+    double alpha = fmin(1, exp(-dE / temperature));
+    accepted = drand48() <= alpha;
+
+    // If the step is not accepted cancel the position update for the particle i
+    if (!accepted)
+    {
+        // Retrieve old positions
+        memcpy(pos_array, old_pos_array, total_array_size);
+    }
+    else
+    {
+        (*accepted_counter)++;
+
+        // Bring the particle back to the first cell
+        for (size_t i = 0; i < n_particles; i++)
+        {
+            for (int j = 0; j < space_dim; j++)
+            {
+                pos_array[c(i, j)] = pb_wrap_position(pos_array[c(i, j)], box_size);
+            }
+        }
+    }
+
+    return new_energy;
 }
 
 #endif
