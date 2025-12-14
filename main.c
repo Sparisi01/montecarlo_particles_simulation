@@ -6,7 +6,6 @@
 #include <omp.h>
 
 #include "src/constants.c"
-#include "src/structures.c"
 #include "src/periodic_boundaries.c"
 
 // Generate velocities from boltzman distribution using box muller
@@ -437,7 +436,7 @@ int main(int argc, char const *argv[])
 
     for (size_t i = 0; i < N_METROPOLIS_STEPS; i++)
     {
-        pb_metropolis_step(pos_array, charge_array, STEP_SIZE, TEMPERATURE, N, SPACE_DIM, &accepted_steps, BOX_SIZE);
+        metropolis_step(energy_array, pos_array, charge_array, STEP_SIZE, TEMPERATURE, N, SPACE_DIM, &accepted_steps);
 
         // Progress Bar
         if (i % PRINT_INTERVAL == 0)
@@ -449,7 +448,7 @@ int main(int argc, char const *argv[])
         // Init energy array
         for (size_t i = 0; i < N; i++)
         {
-            energy_array[i] = pb_compute_one_particle_energy(i, pos_array, charge_array, N, SPACE_DIM, BOX_SIZE);
+            energy_array[i] = compute_one_particle_energy(i, pos_array, charge_array, N, SPACE_DIM);
         }
         fprintf(energy_file, "%lf\n", array_to_total_energy(energy_array, N));
     }
