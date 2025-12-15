@@ -2,7 +2,7 @@
 #define CONSTANTS
 
 #define SEED 42
-#define PRINT_INTERVAL (N_METROPOLIS_STEPS / 100) // Update bar every 1%
+
 #define c(i, j) (SPACE_DIM * i + j)
 
 // Simulation Parameters
