@@ -6,10 +6,14 @@
 #include <omp.h>
 #include <string.h>
 
+// ------------------------------------------------------------------
+
 #include "src/constants.c"
 #include "src/periodic_boundaries.c"
 #include "src/ewald.c"
 #include "src/progress_bar.c"
+
+// ------------------------------------------------------------------
 
 double array_mean(double *arr, int n)
 {
@@ -36,7 +40,86 @@ double array_var(double *arr, int n)
     return array_mean2(arr, n) - array_mean(arr, n) * array_mean(arr, n);
 }
 
-void radial_distribution(const double *pos_array, int n_particles, int space_dim, double box_size, double *bins_array, int N_bins, double bin_interval)
+// ------------------------------------------------------------------
+
+/**
+ * Function to save and retrieve the current system and rng state using bin file for efficency.
+ * Used to start a simulation from a fixed point in time instead of having to simulate all over again.
+ * Usefull for study more precisely certain range of parameters.
+ */
+void save_checkpoint_binary(const char *filename,
+                            const double *pos_array,
+                            int n_particles,
+                            int space_dim,
+                            double energy)
+{
+    FILE *f = fopen(filename, "wb");
+    if (!f)
+    {
+        perror("Checkpoint save failed");
+        exit(EXIT_FAILURE);
+    }
+
+    fwrite(&n_particles, sizeof(int), 1, f);
+    fwrite(&space_dim, sizeof(int), 1, f);
+
+    fwrite(&energy, sizeof(double), 1, f);
+
+    fwrite(pos_array, sizeof(double), n_particles * space_dim, f);
+
+    // Save rng state
+    unsigned short rng_state[3];
+    erand48(rng_state);
+    fwrite(rng_state, sizeof(unsigned short), 3, f);
+
+    fclose(f);
+}
+
+void load_checkpoint_binary(const char *filename,
+                            double *pos_array,
+                            int n_particles,
+                            int space_dim,
+                            double *energy)
+{
+    FILE *f = fopen(filename, "rb");
+    if (!f)
+    {
+        perror("Checkpoint load failed");
+        exit(EXIT_FAILURE);
+    }
+
+    int n_p, s_d;
+    fread(&n_p, sizeof(int), 1, f);
+    fread(&s_d, sizeof(int), 1, f);
+
+    if (n_p != n_particles || s_d != space_dim)
+    {
+        fprintf(stderr, "ERROR: Incompatible checkpoint. N particle or space dimension missmatch\n");
+        exit(EXIT_FAILURE);
+    }
+
+    fread(energy, sizeof(double), 1, f);
+
+    fread(pos_array, sizeof(double),
+          n_particles * space_dim, f);
+
+    // Load rng state
+    unsigned short rng_state[3];
+    fread(rng_state, sizeof(unsigned short), 3, f);
+    srand48(rng_state[0]);
+
+    fclose(f);
+}
+
+// ------------------------------------------------------------------
+
+void radial_distribution(const double *pos_array,
+                         int n_particles,
+                         int space_dim,
+                         double box_size,
+                         double *bins_array,
+                         int N_bins,
+                         double bin_interval)
 {
     for (size_t i = 0; i < n_particles; i++)
     {
@@ -58,20 +141,48 @@ void radial_distribution(const double *pos_array, int n_particles, int space_dim
     }
 }
 
-void save_particle_state(FILE *file, double *pos_array, double *charge_array, int n_particles, int space_dim)
+// ------------------------------------------------------------------
+
+void save_particle_state_csv(const char *filename,
+                             double *pos_array,
+                             double *charge_array,
+                             int n_particles,
+                             int space_dim)
 {
+    FILE *f = fopen(filename, "w");
+    if (!f)
+    {
+        perror("Csv save failed");
+        exit(EXIT_FAILURE);
+    }
+
     for (size_t i = 0; i < n_particles; i++)
     {
         for (size_t j = 0; j < space_dim; j++)
         {
             double x = pos_array[c(i, j)];
-            fprintf(file, "%f;", pos_array[c(i, j)]);
+            fprintf(f, "%f;", pos_array[c(i, j)]);
         }
-        fprintf(file, "%f\n", charge_array[i]);
+        fprintf(f, "%f\n", charge_array[i]);
     }
+
+    fclose(f);
 }
 
-double compute_i_lennar_jones_potential(int i, const double *pos_array, const double *charge_array, int n_particles, int space_dim, double box_size)
+// ------------------------------------------------------------------
+
+/**
+ * Compute the lennar jones potential associated with a particle interacting
+ * with all the others, in periodic boundary condition.
+ * It work regarding the space dimension.
+ * A cut-off rc is applied in order to reduce computations.
+ */
+double compute_i_lennar_jones_potential(int i,
+                                        const double *pos_array,
+                                        const double *charge_array,
+                                        int n_particles,
+                                        int space_dim,
+                                        double box_size)
 {
     double energy_i = 0;
 
@@ -91,12 +202,24 @@ double compute_i_lennar_jones_potential(int i, const double *pos_array, const do
             r2 += dx * dx;
         }
 
+        /**
+         * Apply space cutoff using the fact that the lennar jones potential
+         * is low range and a lot of interaction can be truncated without
+         * losing accuracy. In order to mantain the continuity of V at r = r_c
+         * we perform an energy vertical shift (VSHIFT). This shift is the same
+         * for all the simulation, so it has to be computed only once.
+         */
         double r_c = 2.5 * SIGMA;
 
-        // Apply cutoff
         if (r2 > r_c * r_c)
         {
             continue;
+        }
+
+        static double VSHIFT = 0;
+        if (VSHIFT == 0)
+        {
+            VSHIFT = (4 * EPSILON * (pow(SIGMA / (r_c), 12) - pow(SIGMA / (r_c), 6)));
         }
 
         // Low cutoff in order to avoid computation error
@@ -112,15 +235,19 @@ double compute_i_lennar_jones_potential(int i, const double *pos_array, const do
         double sigma_6 = SIGMA * SIGMA * SIGMA * SIGMA * SIGMA * SIGMA;
         double sigma_12 = sigma_6 * sigma_6;
 
-        double VSHIFT = (4 * EPSILON * (pow(SIGMA / (box_size / 2), 12) - pow(SIGMA / (box_size / 2), 6)));
-        double V_Lennar_Jones = 4.0 * EPSILON * (sigma_12 * inv_r12 - sigma_6 * inv_r6) - VSHIFT;
-        energy_i += V_Lennar_Jones;
+        double V_Lennar_Jones = 4.0 * EPSILON * (sigma_12 * inv_r12 - sigma_6 * inv_r6);
+
+        energy_i += V_Lennar_Jones - VSHIFT;
     }
 
     return energy_i;
 }
 
-double compute_lennar_jones_energy(const double *pos_array, const double *charge_array, int n_particles, int space_dim, double box_size)
+double compute_lennar_jones_energy(const double *pos_array,
+                                   const double *charge_array,
+                                   int n_particles,
+                                   int space_dim,
+                                   double box_size)
 {
     double energy = 0.0;
 
@@ -128,14 +255,18 @@ double compute_lennar_jones_energy(const double *pos_array, const double *charge
     {
         energy += compute_i_lennar_jones_potential(i, pos_array, charge_array, n_particles, space_dim, box_size);
     }
-    // remove double counting from pb_compute_one_particle_energy
-    energy *= 0.5;
+
+    energy *= 0.5; // remove double counting from pb_compute_one_particle_energy
 
     return energy;
 }
 
 // Given the system of N particle in D dimensional space compute the total interaction energy
-double pb_compute_total_energy(const double *pos_array, const double *charge_array, int n_particles, int space_dim, double box_size)
+double pb_compute_total_energy(const double *pos_array,
+                               const double *charge_array,
+                               int n_particles,
+                               int space_dim,
+                               double box_size)
 {
     double total_energy = 0;
     total_energy += compute_lennar_jones_energy(pos_array, charge_array, n_particles, space_dim, box_size);
@@ -145,7 +276,13 @@ double pb_compute_total_energy(const double *pos_array, const double *charge_arr
 }
 
 // Initialize positions in a cubic lattice
-void init_system_lattice(double *pos_array, double *charge_array, double *mass_array, int n_particles, double box_size, int lattice_type, int n_cell_per_row)
+void init_system_lattice(double *pos_array,
+                         double *charge_array,
+                         double *mass_array,
+                         int n_particles,
+                         double box_size,
+                         int lattice_type,
+                         int n_cell_per_row)
 {
     struct Vec3
     {
@@ -202,14 +339,18 @@ void init_system_lattice(double *pos_array, double *charge_array, double *mass_a
     }
 }
 
-void init_system(double *pos_array, double *charge_array, double *mass_array, int n_particles, int space_dimension, double box_size)
+void init_system(double *pos_array,
+                 double *charge_array,
+                 double *mass_array,
+                 int n_particles,
+                 int space_dimension,
+                 double box_size)
 {
     for (size_t i = 0; i < n_particles; i++)
     {
         for (size_t j = 0; j < space_dimension; j++)
         {
-            // Uniform position distribution inside the square box
-            pos_array[c(i, j)] = drand48() * box_size;
+            pos_array[c(i, j)] = drand48() * box_size; // Uniform position distribution inside the square box
         }
 
         switch (i % 2)
@@ -297,9 +438,22 @@ double pb_metropolis_step_full_system(double old_energy, double *pos_array, cons
 
 // This function perform an update of all the system on particle at the time, easier to get good acceptance rate but
 // it has highter temporal correlation
-double pb_metropolis_step_one_particle(double energy, double *pos_array, const double *charge_array, double delta, double temperature, int n_particles, int space_dim, long *accepted_counter, double box_size)
+double pb_metropolis_step_one_particle(double energy,
+                                       double *pos_array,
+                                       const double *charge_array,
+                                       double delta,
+                                       double temperature,
+                                       int n_particles,
+                                       int space_dim,
+                                       long *accepted_counter,
+                                       double box_size)
 {
-    // Array of indexes
+
+    /** In order to remove the bias caused by updating all the particle one at the time but
+     * in the same order we define a permutation array of indexes. At each metropolis step
+     * a new random permutation is used, ensuring that all the particles are updated but in
+     * different order. Based on literature this ensured a drop in time correlation.
+     */
     static int *perm = NULL;
     if (perm == NULL)
     {
@@ -310,7 +464,6 @@ double pb_metropolis_step_one_particle(double energy, double *pos_array, const d
         }
     }
 
-    // Generate a random permutation of indexes
     for (int i = n_particles - 1; i > 0; i--)
     {
         int j = (int)(drand48() * (i + 1));
@@ -319,35 +472,37 @@ double pb_metropolis_step_one_particle(double energy, double *pos_array, const d
         perm[j] = tmp;
     }
 
-    // Keep track of space shifts in memory in order to restore the previous position if the step is not accepted
+    // Keep track of space shifts for the current particle
     double steps_save[space_dim];
 
-    // Update one particle at the time
-    // NOTE: right now I am update all the particle in order, could be better to update i random particles with repetition
-    // in order to remove bias. This option has to be studied
     for (size_t p = 0; p < n_particles; p++)
     {
 
         int i = perm[p];
-        // Calculate old potential
+
         double old_energy = compute_i_lennar_jones_potential(i, pos_array, charge_array, n_particles, space_dim, box_size);
 
-        // Step in each space direction
+        // Random step in j direction between -delta and + delta
         for (int j = 0; j < space_dim; j++)
         {
-            // Random step in j direction between -delta and + delta
             double dj = ((drand48() * 2) - 1) * delta;
 
-            // NOTE: In periodic boundaries conditions there is no need to check for boundaries
             pos_array[c(i, j)] += dj;
             steps_save[j] = dj;
         }
 
-        // Compute the new energy
         double new_energy = compute_i_lennar_jones_potential(i, pos_array, charge_array, n_particles, space_dim, box_size);
         double dE = new_energy - old_energy;
 
-        // Metropolis acceptance criterion
+        /** Metropolis acceptance criterion
+         *
+         * If the step is accepted update the current total energy using dE
+         * and apply periodic boundary condtion bringing all the particle back
+         * to the first cubic cell.
+         *
+         * If the step is refused undo the space step using the steps dj
+         * saved in steps_save.
+         */
         int accepted = 0;
         double alpha = fmin(1, exp(-dE / temperature));
         accepted = drand48() <= alpha;
@@ -356,10 +511,8 @@ double pb_metropolis_step_one_particle(double energy, double *pos_array, const d
         {
             (*accepted_counter)++;
 
-            // Update energy
             energy += dE;
 
-            // Bring particles back to first cell
             for (int j = 0; j < space_dim; j++)
             {
                 pos_array[c(i, j)] = pb_wrap_position(pos_array[c(i, j)], box_size);
@@ -367,7 +520,6 @@ double pb_metropolis_step_one_particle(double energy, double *pos_array, const d
         }
         else
         {
-            // Restore positions
             for (int j = 0; j < space_dim; j++)
             {
                 pos_array[c(i, j)] -= steps_save[j];
@@ -380,49 +532,34 @@ double pb_metropolis_step_one_particle(double energy, double *pos_array, const d
 
 int main(int argc, char const *argv[])
 {
-    //---------------------------
-    // SIMULATION PARAMETERS
-    //---------------------------
-    const int lattice_type = 4;
-    const int n_cell_per_row = 5;
+    /**
+     * SIMULATION PARAMETERS
+     * Those are the 3 parameters that actually control the simulation.
+     * lattice_type & n_cell_per_row define the number of particles
+     * density and number of particles define the box size.
+     */
+    const int lattice_type = 4;   // Lattice type 1 CC, 2 BCC, 4 FCC
+    const int n_cell_per_row = 5; // Number of lattice cell per row
     const double density = 0.85;
-    //---------------------------
-    const int space_dimension = 3;
-    const int seed = 42;
-    const int n_metropolis_step = 100000;
-    const double space_step = 0.1;
-    //---------------------------
-    // DERIVATE PARAMETERS
-    //---------------------------
+
+    const int space_dimension = 3; // 1D - 2D - 3D - ... - nD
+
+    const int seed = 42; // Seed used for reproducibility
+    srand48(seed);
+
+    const double space_step = 0.1; // Max space step in metropolis update, should be << box_size
     const int n_particles = pow(n_cell_per_row, 3) * lattice_type;
-    const int total_vel_pos_array_size = n_particles * space_dimension;
     const double box_size = pow(n_particles / density, 1.0 / space_dimension);
-    const int PRINT_INTERVAL = n_metropolis_step / 100; // Update progress bar every 1%
-    //---------------------------
 
     printf("N_particles = %d\n", n_particles);
     printf("Box_size = %lf\n", box_size);
 
-    srand48(seed);
-
-    // g(r) CONSTANTS --------------------
-    const double max_radius = box_size; // After box_size/2 one can see artifact emerges from the conflict between the spherical nature of g(r) and the cubic cell
-    const double N_bins = 600;
-    const double bin_interval = max_radius / N_bins;
-    int n_radial_distributions_performed = 0; // Keep track of how many times the g(r) is computed and summed to the bins, used to normalize
-
-    // Array of bins used to compute g(r)
-    double *bin_counting_array = (double *)calloc(sizeof(double), N_bins); // Array di bin per tenere traccia della densità radiale
-    if (!bin_counting_array)
-    {
-        perror("Error allocating counting array");
-        exit(EXIT_FAILURE);
-    }
-
-    //-------------------------------------------
-    // Positions and velocities are store in an array of size (N * SPACE_DIM) where
-    // the j component of the i particle is stored at index (SPACE_DIM * i + j).
-    // In order to retrieve the correct index for component j of particle i use the macro "c(i,j)"
+    /**
+     * Positions and velocities are store in a flattered array of size (N * SPACE_DIM), where
+     * the j component of the i particle is stored at index (SPACE_DIM * i + j).
+     * In order to retrieve the correct index for component j of particle i use the macro "c(i,j)".
+     */
+    const int total_vel_pos_array_size = n_particles * space_dimension;
 
     double *pos_array = (double *)malloc(total_vel_pos_array_size * sizeof(double));
     if (pos_array == NULL)
@@ -440,17 +577,6 @@ int main(int argc, char const *argv[])
     if (mass_array == NULL)
         exit(EXIT_FAILURE);
 
-    FILE *start_position_file = fopen("./output/start_position_file.csv", "w");
-    if (start_position_file == NULL)
-    {
-        printf("Check for output folder");
-        exit(EXIT_FAILURE);
-    }
-
-    FILE *end_position_file = fopen("./output/end_position_file.csv", "w");
-    if (end_position_file == NULL)
-        exit(EXIT_FAILURE);
-
     FILE *radial_distribution_file = fopen("./output/radial_distribution.csv", "w");
     if (radial_distribution_file == NULL)
         exit(EXIT_FAILURE);
@@ -459,37 +585,81 @@ int main(int argc, char const *argv[])
     if (energy_file == NULL)
         exit(EXIT_FAILURE);
 
-    setvbuf(energy_file, NULL, _IOFBF, 1 << 20); // 1 MB buffer
+    setvbuf(energy_file, NULL, _IOFBF, 1 << 20); // 1 MB buffer, used to increase performance
+
+    /**
+     * And estimate of g(r) is computed using binning,
+     * the following parameters define the binning number and size
+     */
+    const double max_radius = box_size; // After box_size/2 one can see artifact emerges from the conflict between the spherical nature of g(r) and the cubic cell
+    const double N_bins = 600;
+    const double bin_interval = max_radius / N_bins;
+    int n_radial_distributions_performed = 0; // Keep track of how many times the g(r) is computed and summed to the bins, used to normalize
+
+    double *bin_counting_array = (double *)calloc(sizeof(double), N_bins); // Bins array
+    if (!bin_counting_array)
+    {
+        perror("Error allocating counting array");
+        exit(EXIT_FAILURE);
+    }
 
     //-------------------------------------------
 
-    init_system_lattice(pos_array, charge_array, mass_array, n_particles, box_size, lattice_type, n_cell_per_row);
-    // init_system(pos_array, charge_array, mass_array, n_particles, space_dimension, box_size);
+    double energy = 0;
 
-    // Compute energy in the starting position
-    double energy = pb_compute_total_energy(pos_array, charge_array, n_particles, space_dimension, box_size);
+    const int restart_from_checkpoint = 0;
+    if (restart_from_checkpoint)
+    {
+        const char *check_point_file_name = "./state_saves_binaries/checkpoint_T0.7.bin";
+        load_checkpoint_binary(check_point_file_name,
+                               pos_array,
+                               n_particles,
+                               space_dimension,
+                               &energy);
+    }
+    else
+    {
+        init_system_lattice(pos_array, charge_array, mass_array, n_particles, box_size, lattice_type, n_cell_per_row);
+        // init_system(pos_array, charge_array, mass_array, n_particles, space_dimension, box_size);
+        energy = pb_compute_total_energy(pos_array, charge_array, n_particles, space_dimension, box_size);
+    }
 
-    save_particle_state(start_position_file, pos_array, charge_array, n_particles, space_dimension);
     printf("Start energy: %f\n", energy);
 
-    clock_t begin_time = clock(); // Save starting time, used for ETA in progress bar
+    save_particle_state_csv("./output/start_position_file.csv", pos_array, charge_array, n_particles, space_dimension);
 
-    long accepted_steps = 0; // Keep track of how many metropolis steps get accepted
+    /** |---- INCREASE T METHOD -----|
+     * Start from a system configuration and define a starting temperature T, a temperature step dT
+     * and a number of temperature step N (T_max = Tmin + NdT)
+     *
+     * 1) Set the min temperature.
+     *
+     * 2) The system is evolved throught metropolis for N_step_thermalization until thermalization.
+     *
+     * 3) After the termalization the system is evolved for N_step_data steps. During this time
+     * the thermodinamics varables are stored (Energy). At the end compute statistics on the current
+     * energy array (Cv).
+     *
+     * 4) Save the current system state ina  binary file
+     *
+     * 5) Increase T by dT and repeat
+     *
+     *
+     * NOTE: The total number of steps is (N_step_thermalization + N_step_data) * N_temperatures
+     */
 
-    // INCREASE T METHOD -------------------------------
-    const double temp_min = 0.45;
-    const double temp_max = 0.90;
-    const int N_temperatures = 10;
+    const double temp_min = 0.6;
+    const double temp_max = 0.75;
+    const int N_temperatures = 5;
     const double dT = (temp_max - temp_min) / N_temperatures;
 
-    const int N_step_thermalization = 1000;
-    const int N_step_data = 10000;
+    const int N_step_thermalization = 10000;
+    const int N_step_data = 50000;
 
     double *energy_array = (double *)malloc(sizeof(double) * N_step_data);
     if (energy_array == NULL)
         exit(EXIT_FAILURE);
 
-    // Array to keep track of all specific_heat varing temperature
     double *specific_heat_array = (double *)malloc(sizeof(double) * N_temperatures);
     if (specific_heat_array == NULL)
         exit(EXIT_FAILURE);
@@ -498,8 +668,12 @@ int main(int argc, char const *argv[])
     if (specific_heat_file == NULL)
         exit(EXIT_FAILURE);
 
+    long accepted_steps = 0; // Keep track of how many metropolis steps get accepted
+
     for (size_t i = 0; i < N_temperatures; i++)
     {
+        clock_t begin_time = clock(); // Save starting time, used for ETA in progress bar
+
         double temperature = temp_min + i * dT;
         printf("T = %lf\n", temperature);
 
@@ -514,7 +688,6 @@ int main(int argc, char const *argv[])
                 fflush(stdout);
             }
 
-            // Perform metropolis step
             energy = pb_metropolis_step_one_particle(energy, pos_array, charge_array, space_step, temperature, n_particles, space_dimension, &accepted_steps, box_size);
 
             fprintf(energy_file, "%lf\n", energy);
@@ -526,18 +699,21 @@ int main(int argc, char const *argv[])
             }
         }
 
-        fprintf(specific_heat_file, "%lf;%lf\n", temperature, array_var(energy_array, N_step_data) / (temperature * temperature) + 3. / 2.0 * n_particles);
+        fprintf(specific_heat_file, "%lf;%lf\n", temperature, array_var(energy_array, N_step_data) / (temperature * temperature));
 
         // Flush data in order to avoid data loss in the middle of the simulation
         fflush(specific_heat_file);
         fflush(energy_file);
 
         printf("\r\033[2K"); // Erase cmd current line
+
+        // Save check point at current T
+        char filename[128];
+        sprintf(filename, "./state_saves_binaries/checkpoint_T%.3f.bin", temperature);
+        save_checkpoint_binary(filename, pos_array, n_particles, space_dimension, energy);
     }
 
-    // END INCREASE T METHOD -------------------------------
-
-    //
+    // clock_t begin_time = clock();
     // for (size_t i = 0; i < n_metropolis_step; i++)
     //{
     //    // energy = pb_metropolis_step_full_system(energy, pos_array, charge_array, space_step, temperature, n_particles, space_dimension, &accepted_steps, box_size);
@@ -567,14 +743,11 @@ int main(int argc, char const *argv[])
     printf("\r\033[2K");
 
     //----------------------------------
-    clock_t end_time = clock();
-    double time_spent = (double)(end_time - begin_time) / CLOCKS_PER_SEC;
-    printf("Total time: %.0lf ms\n", time_spent * 1000);
 
     printf("Accepted step: %ld\n", accepted_steps);
     printf("End energy: %f\n", energy);
 
-    save_particle_state(end_position_file, pos_array, charge_array, n_particles, space_dimension);
+    save_particle_state_csv("./output/end_position_file.csv", pos_array, charge_array, n_particles, space_dimension);
 
     // Normalization of bins in g(r)
     for (size_t i = 0; i < N_bins; i++)
@@ -592,8 +765,7 @@ int main(int argc, char const *argv[])
     free(mass_array);
     free(charge_array);
     free(specific_heat_array);
-    fclose(start_position_file);
-    fclose(end_position_file);
+
     fclose(energy_file);
     fclose(specific_heat_file);
     fclose(radial_distribution_file);
