@@ -177,17 +177,21 @@ void save_particle_state_csv(const char *filename,
  * It work regarding the space dimension.
  * A cut-off rc is applied in order to reduce computations.
  */
-double compute_i_lennar_jones_potential(int i,
-                                        const double *pos_array,
-                                        const double *charge_array,
-                                        int n_particles,
-                                        int space_dim,
-                                        double box_size)
+double pb_compute_i_lennar_jones_potential(int i,
+                                           const double *pos_array,
+                                           const double *charge_array,
+                                           int n_particles,
+                                           int space_dim,
+                                           double box_size)
 {
     double energy_i = 0;
 
     for (int k = 0; k < n_particles; k++)
     {
+
+        static const double sigma_6 = SIGMA * SIGMA * SIGMA * SIGMA * SIGMA * SIGMA;
+        static const double sigma_12 = sigma_6 * sigma_6;
+
         // Avoid self interaction
         if (i == k)
         {
@@ -219,7 +223,10 @@ double compute_i_lennar_jones_potential(int i,
         static double VSHIFT = 0;
         if (VSHIFT == 0)
         {
-            VSHIFT = (4 * EPSILON * (pow(SIGMA / (r_c), 12) - pow(SIGMA / (r_c), 6)));
+            double inv_rc2 = 1. / r2;
+            double inv_rc6 = inv_rc2 * inv_rc2 * inv_rc2;
+            double inv_rc12 = inv_rc6 * inv_rc6;
+            VSHIFT = 4.0 * EPSILON * (sigma_12 * inv_rc12 - sigma_6 * inv_rc6);
         }
 
         // Low cutoff in order to avoid computation error
@@ -232,9 +239,6 @@ double compute_i_lennar_jones_potential(int i,
         double inv_r6 = inv_r2 * inv_r2 * inv_r2;
         double inv_r12 = inv_r6 * inv_r6;
 
-        double sigma_6 = SIGMA * SIGMA * SIGMA * SIGMA * SIGMA * SIGMA;
-        double sigma_12 = sigma_6 * sigma_6;
-
         double V_Lennar_Jones = 4.0 * EPSILON * (sigma_12 * inv_r12 - sigma_6 * inv_r6);
 
         energy_i += V_Lennar_Jones - VSHIFT;
@@ -243,17 +247,17 @@ double compute_i_lennar_jones_potential(int i,
     return energy_i;
 }
 
-double compute_lennar_jones_energy(const double *pos_array,
-                                   const double *charge_array,
-                                   int n_particles,
-                                   int space_dim,
-                                   double box_size)
+double pb_compute_lennar_jones_energy(const double *pos_array,
+                                      const double *charge_array,
+                                      int n_particles,
+                                      int space_dim,
+                                      double box_size)
 {
     double energy = 0.0;
 
     for (size_t i = 0; i < n_particles; i++)
     {
-        energy += compute_i_lennar_jones_potential(i, pos_array, charge_array, n_particles, space_dim, box_size);
+        energy += pb_compute_i_lennar_jones_potential(i, pos_array, charge_array, n_particles, space_dim, box_size);
     }
 
     energy *= 0.5; // remove double counting from pb_compute_one_particle_energy
@@ -269,11 +273,13 @@ double pb_compute_total_energy(const double *pos_array,
                                double box_size)
 {
     double total_energy = 0;
-    total_energy += compute_lennar_jones_energy(pos_array, charge_array, n_particles, space_dim, box_size);
+    total_energy += pb_compute_lennar_jones_energy(pos_array, charge_array, n_particles, space_dim, box_size);
     // total_energy += ewd_total_coulomb_energy(pos_array, charge_array, n_particles, box_size);
 
     return total_energy;
 }
+
+// ------------------------------------------------------------------
 
 // Initialize positions in a cubic lattice
 void init_system_lattice(double *pos_array,
@@ -368,6 +374,8 @@ void init_system(double *pos_array,
     }
 }
 
+// ------------------------------------------------------------------
+
 // This function perform an update of all the system at once, hard to get good acceptance rate for stable configuration.
 double pb_metropolis_step_full_system(double old_energy, double *pos_array, const double *charge_array, double delta, double temperature, int n_particles, int space_dim, long *accepted_counter, double box_size)
 {
@@ -403,7 +411,7 @@ double pb_metropolis_step_full_system(double old_energy, double *pos_array, cons
     }
 
     // Compute the new energy
-    double new_energy = pb_compute_total_energy(pos_array, charge_array, n_particles, space_dim, box_size);
+    double new_energy = pb_compute_total_energy_periodic_boundary(pos_array, charge_array, n_particles, space_dim, box_size);
     double dE = new_energy - old_energy;
 
     // Metropolis acceptance criterion
@@ -480,7 +488,7 @@ double pb_metropolis_step_one_particle(double energy,
 
         int i = perm[p];
 
-        double old_energy = compute_i_lennar_jones_potential(i, pos_array, charge_array, n_particles, space_dim, box_size);
+        double old_energy = pb_compute_i_lennar_jones_potential(i, pos_array, charge_array, n_particles, space_dim, box_size);
 
         // Random step in j direction between -delta and + delta
         for (int j = 0; j < space_dim; j++)
@@ -491,7 +499,7 @@ double pb_metropolis_step_one_particle(double energy,
             steps_save[j] = dj;
         }
 
-        double new_energy = compute_i_lennar_jones_potential(i, pos_array, charge_array, n_particles, space_dim, box_size);
+        double new_energy = pb_compute_i_lennar_jones_potential(i, pos_array, charge_array, n_particles, space_dim, box_size);
         double dE = new_energy - old_energy;
 
         /** Metropolis acceptance criterion
@@ -529,6 +537,8 @@ double pb_metropolis_step_one_particle(double energy,
 
     return energy;
 }
+
+// ------------------------------------------------------------------
 
 int main(int argc, char const *argv[])
 {
@@ -611,11 +621,7 @@ int main(int argc, char const *argv[])
     if (restart_from_checkpoint)
     {
         const char *check_point_file_name = "./state_saves_binaries/checkpoint_T0.7.bin";
-        load_checkpoint_binary(check_point_file_name,
-                               pos_array,
-                               n_particles,
-                               space_dimension,
-                               &energy);
+        load_checkpoint_binary(check_point_file_name, pos_array, n_particles, space_dimension, &energy);
     }
     else
     {
