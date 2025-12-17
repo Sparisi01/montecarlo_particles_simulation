@@ -12,6 +12,7 @@
 #include "src/periodic_boundaries.c"
 #include "src/ewald.c"
 #include "src/progress_bar.c"
+#include "src/verlet_list.c"
 
 // ------------------------------------------------------------------
 
@@ -658,6 +659,8 @@ int main(int argc, char const *argv[])
         break;
     }
 
+    //-------------------------------------------------------------------------------------------------
+
 INCREASE_TEMPERATURE_METHOD:
 
     /** |---- INCREASE T METHOD -----|
@@ -744,6 +747,8 @@ INCREASE_TEMPERATURE_METHOD:
     }
     goto FREE_SECTION;
 
+    //-------------------------------------------------------------------------------------------------
+
 SINGLE_TEMPERATURE_SIMULATION:
 
     int n_metropolis_step = 10000;
@@ -796,6 +801,8 @@ SINGLE_TEMPERATURE_SIMULATION:
         double r = (j + 0.5) * bin_interval;
         fprintf(radial_distribution_file, "%f;%f\n", r, bin_counting_array[j]);
     }
+
+    //-------------------------------------------------------------------------------------------------
 
 FREE_SECTION:
 
