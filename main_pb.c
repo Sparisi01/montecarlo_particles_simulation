@@ -1,11 +1,11 @@
 /**
  * @file main_pb.c
- * @brief Programma principale della simulazione MD.
+ * @brief
  *
  * @details
  *
  * @author
- * @date
+ * @date 17 December 2025
  */
 
 #include <assert.h>
@@ -30,6 +30,13 @@ enum SIMULATION_TYPE
     NONE
 };
 
+/**
+ * @brief given an array arr of double and size N compute the mean = sum(arr[i])/N
+ *
+ * @param arr
+ * @param n
+ * @return double
+ */
 double array_mean(double *arr, int n)
 {
     double mean = 0;
@@ -40,6 +47,13 @@ double array_mean(double *arr, int n)
     return mean / n;
 }
 
+/**
+ * @brief given an array arr of double and size N compute the mean of squares = sum(arr[i]^2)/N
+ *
+ * @param arr
+ * @param n
+ * @return double
+ */
 double array_mean2(double *arr, int n)
 {
     double mean2 = 0;
@@ -50,6 +64,13 @@ double array_mean2(double *arr, int n)
     return mean2 / n;
 }
 
+/**
+ * @brief given an array arr of double and size N compute the variance
+ *
+ * @param arr
+ * @param n
+ * @return double
+ */
 double array_var(double *arr, int n)
 {
     return array_mean2(arr, n) - array_mean(arr, n) * array_mean(arr, n);
@@ -391,13 +412,13 @@ double pb_verlet_compute_lennar_jones_energy(const double *pos_array,
 // Given the system of N particle in D dimensional space compute the total interaction energy
 double pb_verlet_compute_total_energy(const double *pos_array,
                                       const double *charge_array,
-                                      const VerletList_t *vl,
+                                      const VerletList_t *verlet_list,
                                       int n_particles,
                                       int space_dim,
                                       double box_size)
 {
     double total_energy = 0;
-    total_energy += pb_verlet_compute_lennar_jones_energy(pos_array, charge_array, vl, n_particles, space_dim, box_size);
+    total_energy += pb_verlet_compute_lennar_jones_energy(pos_array, charge_array, verlet_list, n_particles, space_dim, box_size);
     // total_energy += ewd_total_coulomb_energy(pos_array, charge_array, n_particles, box_size);
 
     return total_energy;
@@ -568,16 +589,16 @@ double pb_metropolis_step_full_system(double old_energy, double *pos_array, cons
 
 // This function perform an update of all the system on one particle at the time, easier to get good acceptance rate but
 // it has highter temporal correlation
-double pb_metropolis_step_one_particle(double energy,
-                                       double *pos_array,
-                                       const double *charge_array,
-                                       const VerletList_t *vl,
-                                       double delta,
-                                       double temperature,
-                                       int n_particles,
-                                       int space_dim,
-                                       long *accepted_counter,
-                                       double box_size)
+double verlet_pb_metropolis_step_one_particle(double energy,
+                                              double *pos_array,
+                                              const double *charge_array,
+                                              const VerletList_t *vl,
+                                              double delta,
+                                              double temperature,
+                                              int n_particles,
+                                              int space_dim,
+                                              long *accepted_counter,
+                                              double box_size)
 {
 
     /** In order to remove the bias caused by updating all the particle using always the
@@ -888,7 +909,7 @@ INCREASE_TEMPERATURE_SIMULATION:
                 fflush(stdout);
             }
 
-            energy = pb_metropolis_step_one_particle(energy, pos_array, charge_array, verlet_list, space_step, temperature, n_particles, space_dimension, &metropolis_accepted_steps, box_size);
+            energy = verlet_pb_metropolis_step_one_particle(energy, pos_array, charge_array, verlet_list, space_step, temperature, n_particles, space_dimension, &metropolis_accepted_steps, box_size);
 
             // TODO: add verlet list update and usage
 
@@ -960,7 +981,7 @@ SINGLE_TEMPERATURE_SIMULATION:
         counting_verlet++;
 
         // energy = pb_metropolis_step_full_system(energy, pos_array, charge_array, space_step, temperature, n_particles, space_dimension, &accepted_steps, box_size);
-        energy = pb_metropolis_step_one_particle(energy, pos_array, charge_array, verlet_list, space_step, temperature, n_particles, space_dimension, &metropolis_accepted_steps, box_size);
+        energy = verlet_pb_metropolis_step_one_particle(energy, pos_array, charge_array, verlet_list, space_step, temperature, n_particles, space_dimension, &metropolis_accepted_steps, box_size);
 
         // Check if the verlet list need to be rebuild
         if (verlet_pb_needs_rebuild(pos_array, old_pos_array, n_particles, space_dimension, box_size, skin))
