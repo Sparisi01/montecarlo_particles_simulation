@@ -125,7 +125,6 @@ void radial_distribution(const double *pos_array,
     {
         for (size_t k = i + 1; k < n_particles; k++)
         {
-
             double r2 = 0;
             for (int j = 0; j < space_dim; j++)
             {
@@ -376,7 +375,7 @@ void init_system(double *pos_array,
 
 // ------------------------------------------------------------------
 
-// This function perform an update of all the system at once, hard to get good acceptance rate for stable configuration.
+// This function perform an update of all the system at once, hard to get good acceptance rate for stable configurations.
 double pb_metropolis_step_full_system(double old_energy, double *pos_array, const double *charge_array, double delta, double temperature, int n_particles, int space_dim, long *accepted_counter, double box_size)
 {
     // Save old position configuration
@@ -444,7 +443,7 @@ double pb_metropolis_step_full_system(double old_energy, double *pos_array, cons
     }
 }
 
-// This function perform an update of all the system on particle at the time, easier to get good acceptance rate but
+// This function perform an update of all the system on one particle at the time, easier to get good acceptance rate but
 // it has highter temporal correlation
 double pb_metropolis_step_one_particle(double energy,
                                        double *pos_array,
@@ -457,8 +456,8 @@ double pb_metropolis_step_one_particle(double energy,
                                        double box_size)
 {
 
-    /** In order to remove the bias caused by updating all the particle one at the time but
-     * in the same order we define a permutation array of indexes. At each metropolis step
+    /** In order to remove the bias caused by updating all the particle using always the
+     * same order we define a permutation array of indexes. At each metropolis step
      * a new random permutation is used, ensuring that all the particles are updated but in
      * different order. Based on literature this ensured a drop in time correlation.
      */
@@ -508,7 +507,7 @@ double pb_metropolis_step_one_particle(double energy,
          * and apply periodic boundary condtion bringing all the particle back
          * to the first cubic cell.
          *
-         * If the step is refused undo the space step using the steps dj
+         * If the step is refused, undo the space step using the steps dj
          * saved in steps_save.
          */
         int accepted = 0;
@@ -545,7 +544,7 @@ int main(int argc, char const *argv[])
     /**
      * SIMULATION PARAMETERS
      * Those are the 3 parameters that actually control the simulation.
-     * lattice_type & n_cell_per_row define the number of particles
+     * lattice_type & n_cell_per_row define the number of particles,
      * density and number of particles define the box size.
      */
     const int lattice_type = 4;   // Lattice type 1 CC, 2 BCC, 4 FCC
@@ -557,9 +556,15 @@ int main(int argc, char const *argv[])
     const int seed = 42; // Seed used for reproducibility
     srand48(seed);
 
-    const double space_step = 0.1; // Max space step in metropolis update, should be << box_size
     const int n_particles = pow(n_cell_per_row, 3) * lattice_type;
     const double box_size = pow(n_particles / density, 1.0 / space_dimension);
+
+    const double space_step = 0.1; // Max space step in metropolis update, should be << box_size
+
+    if (space_step > box_size * 0.05)
+    {
+        fprintf(stderr, "WARNING: space_step could be too hight for the current box_size");
+    }
 
     printf("N_particles = %d\n", n_particles);
     printf("Box_size = %lf\n", box_size);
@@ -567,7 +572,8 @@ int main(int argc, char const *argv[])
     /**
      * Positions and velocities are store in a flattered array of size (N * SPACE_DIM), where
      * the j component of the i particle is stored at index (SPACE_DIM * i + j).
-     * In order to retrieve the correct index for component j of particle i use the macro "c(i,j)".
+     * In order to retrieve the correct index for component j of particle i use the macro "c(i,j)" defined
+     * in constants.c.
      */
     const int total_vel_pos_array_size = n_particles * space_dimension;
 
@@ -615,7 +621,7 @@ int main(int argc, char const *argv[])
 
     //-------------------------------------------
 
-    long accepted_steps = 0; // Keep track of how many metropolis steps get accepted
+    long metropolis_accepted_steps = 0;
     double energy = 0;
 
     const int restart_from_checkpoint = 0;
@@ -634,6 +640,25 @@ int main(int argc, char const *argv[])
     printf("Start energy: %f\n", energy);
 
     save_particle_state_csv("./output/start_position_file.csv", pos_array, charge_array, n_particles, space_dimension);
+
+    // Choose type of simulation
+    int simulation_type = 0;
+
+    switch (simulation_type)
+    {
+    case 0:
+        goto INCREASE_TEMPERATURE_METHOD;
+        break;
+
+    case 1:
+        goto SINGLE_TEMPERATURE_SIMULATION;
+        break;
+    default:
+        goto FREE_SECTION;
+        break;
+    }
+
+INCREASE_TEMPERATURE_METHOD:
 
     /** |---- INCREASE T METHOD -----|
      * Start from a system configuration and define a starting temperature T, a temperature step dT
@@ -655,68 +680,71 @@ int main(int argc, char const *argv[])
      * NOTE: The total number of steps is (N_step_thermalization + N_step_data) * N_temperatures
      */
 
-    // const double temp_min = 0.6;
-    // const double temp_max = 0.75;
-    // const int N_temperatures = 5;
-    // const double dT = (temp_max - temp_min) / N_temperatures;
+    const double temp_min = 0.6;
+    const double temp_max = 0.75;
+    const int N_temperatures = 5;
+    const double dT = (temp_max - temp_min) / N_temperatures;
 
-    // const int N_step_thermalization = 10000;
-    // const int N_step_data = 50000;
+    const int N_step_thermalization = 10000;
+    const int N_step_data = 50000;
 
-    // double *energy_array = (double *)malloc(sizeof(double) * N_step_data);
-    // if (energy_array == NULL)
-    //     exit(EXIT_FAILURE);
+    double *energy_array = (double *)malloc(sizeof(double) * N_step_data);
+    if (energy_array == NULL)
+        exit(EXIT_FAILURE);
 
-    // double *specific_heat_array = (double *)malloc(sizeof(double) * N_temperatures);
-    // if (specific_heat_array == NULL)
-    //     exit(EXIT_FAILURE);
+    double *specific_heat_array = (double *)malloc(sizeof(double) * N_temperatures);
+    if (specific_heat_array == NULL)
+        exit(EXIT_FAILURE);
 
-    // FILE *specific_heat_file = fopen("./output/specific_heat.csv", "w");
-    // if (specific_heat_file == NULL)
-    //     exit(EXIT_FAILURE);
+    FILE *specific_heat_file = fopen("./output/specific_heat.csv", "w");
+    if (specific_heat_file == NULL)
+        exit(EXIT_FAILURE);
 
-    // for (size_t i = 0; i < N_temperatures; i++)
-    // {
-    //     clock_t begin_time = clock(); // Save starting time, used for ETA in progress bar
+    for (size_t i = 0; i < N_temperatures; i++)
+    {
+        clock_t begin_time = clock(); // Save starting time, used for ETA in progress bar
 
-    //     double temperature = temp_min + i * dT;
-    //     printf("T = %lf\n", temperature);
+        double temperature = temp_min + i * dT;
+        printf("T = %lf\n", temperature);
 
-    //     // Termalizations steps plus data steps
-    //     for (size_t j = 0; j < N_step_thermalization + N_step_data; j++)
-    //     {
-    //         // Progress bar
-    //         if (j % ((N_step_thermalization + N_step_data) / 100) == 0)
-    //         {
-    //             print_progress(j, N_step_thermalization + N_step_data, begin_time);
-    //             printf(" %d/%d", (int)i + 1, N_temperatures);
-    //             fflush(stdout);
-    //         }
+        // Termalizations steps plus data steps
+        for (size_t j = 0; j < N_step_thermalization + N_step_data; j++)
+        {
+            // Progress bar
+            if (j % ((N_step_thermalization + N_step_data) / 100) == 0)
+            {
+                print_progress(j, N_step_thermalization + N_step_data, begin_time);
+                printf(" %d/%d", (int)i + 1, N_temperatures);
+                fflush(stdout);
+            }
 
-    //         energy = pb_metropolis_step_one_particle(energy, pos_array, charge_array, space_step, temperature, n_particles, space_dimension, &accepted_steps, box_size);
+            energy = pb_metropolis_step_one_particle(energy, pos_array, charge_array, space_step, temperature, n_particles, space_dimension, &metropolis_accepted_steps, box_size);
 
-    //         fprintf(energy_file, "%lf\n", energy);
+            fprintf(energy_file, "%lf\n", energy);
 
-    //         // Start keep track of energy for statistics only after thermalization
-    //         if (j >= N_step_thermalization)
-    //         {
-    //             energy_array[j - N_step_thermalization] = energy;
-    //         }
-    //     }
+            // Start keep track of energy for statistics only after thermalization
+            if (j >= N_step_thermalization)
+            {
+                energy_array[j - N_step_thermalization] = energy;
+            }
+        }
 
-    //     fprintf(specific_heat_file, "%lf;%lf\n", temperature, array_var(energy_array, N_step_data) / (temperature * temperature));
+        fprintf(specific_heat_file, "%lf;%lf\n", temperature, array_var(energy_array, N_step_data) / (temperature * temperature));
 
-    //     // Flush data in order to avoid data loss in the middle of the simulation
-    //     fflush(specific_heat_file);
-    //     fflush(energy_file);
+        // Flush data in order to avoid data loss in the middle of the simulation
+        fflush(specific_heat_file);
+        fflush(energy_file);
 
-    //     printf("\r\033[2K"); // Erase cmd current line
+        printf("\r\033[2K"); // Erase cmd current line
 
-    //     // Save check point at current T
-    //     char filename[128];
-    //     sprintf(filename, "./state_saves_binaries/checkpoint_T%.3f.bin", temperature);
-    //     save_checkpoint_binary(filename, pos_array, n_particles, space_dimension, energy);
-    // }
+        // Save check point at current T
+        char filename[128];
+        sprintf(filename, "./state_saves_binaries/checkpoint_T%.3f.bin", temperature);
+        save_checkpoint_binary(filename, pos_array, n_particles, space_dimension, energy);
+    }
+    goto FREE_SECTION;
+
+SINGLE_TEMPERATURE_SIMULATION:
 
     int n_metropolis_step = 10000;
     double temperature = 1.1;
@@ -725,7 +753,7 @@ int main(int argc, char const *argv[])
     for (size_t i = 0; i < n_metropolis_step; i++)
     {
         // energy = pb_metropolis_step_full_system(energy, pos_array, charge_array, space_step, temperature, n_particles, space_dimension, &accepted_steps, box_size);
-        energy = pb_metropolis_step_one_particle(energy, pos_array, charge_array, space_step, temperature, n_particles, space_dimension, &accepted_steps, box_size);
+        energy = pb_metropolis_step_one_particle(energy, pos_array, charge_array, space_step, temperature, n_particles, space_dimension, &metropolis_accepted_steps, box_size);
 
         if (i % ((n_metropolis_step / 100) + 1) == 0)
         {
@@ -752,7 +780,7 @@ int main(int argc, char const *argv[])
 
     //----------------------------------
 
-    printf("Accepted step: %ld\n", accepted_steps);
+    printf("Accepted step: %ld\n", metropolis_accepted_steps);
     printf("End energy: %f\n", energy);
 
     save_particle_state_csv("./output/end_position_file.csv", pos_array, charge_array, n_particles, space_dimension);
@@ -768,6 +796,8 @@ int main(int argc, char const *argv[])
         double r = (j + 0.5) * bin_interval;
         fprintf(radial_distribution_file, "%f;%f\n", r, bin_counting_array[j]);
     }
+
+FREE_SECTION:
 
     free(pos_array);
     free(vel_array);
