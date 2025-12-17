@@ -1,3 +1,13 @@
+/**
+ * @file main_pb.c
+ * @brief Programma principale della simulazione MD.
+ *
+ * @details
+ *
+ * @author
+ * @date
+ */
+
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -6,15 +16,18 @@
 #include <omp.h>
 #include <string.h>
 
-// ------------------------------------------------------------------
-
 #include "src/constants.c"
 #include "src/periodic_boundaries.c"
 #include "src/ewald.c"
 #include "src/progress_bar.c"
 #include "src/verlet_list.c"
 
-// ------------------------------------------------------------------
+enum SIMULATION_TYPE
+{
+    SINGLE_T,
+    INCREASING_T,
+    NONE
+};
 
 double array_mean(double *arr, int n)
 {
@@ -504,7 +517,7 @@ double pb_metropolis_step_one_particle(double energy,
 
         /** Metropolis acceptance criterion
          *
-         * If the step is accepted update the current total energy using dE
+         * @brief If the step is accepted update the current total energy using dE
          * and apply periodic boundary condtion bringing all the particle back
          * to the first cubic cell.
          *
@@ -549,12 +562,12 @@ int main(int argc, char const *argv[])
      * density and number of particles define the box size.
      */
     const int lattice_type = 4;   // Lattice type 1 CC, 2 BCC, 4 FCC
-    const int n_cell_per_row = 4; // Number of lattice cell per row
+    const int n_cell_per_row = 8; // Number of lattice cell per row
     const double density = 1.3;
 
     const int space_dimension = 3; // 1D - 2D - 3D - ... - nD
 
-    const int seed = 42; // Seed used for reproducibility
+    const int seed = 42;
     srand48(seed);
 
     const int n_particles = pow(n_cell_per_row, 3) * lattice_type;
@@ -564,7 +577,8 @@ int main(int argc, char const *argv[])
 
     if (space_step > box_size * 0.05)
     {
-        fprintf(stderr, "WARNING: space_step could be too hight for the current box_size");
+        fprintf(stderr, "WARNING: space_step could be too hight for the current box_size.\n");
+        fprintf(stderr, "Space_step = %lf, Box_size = %lf\n", space_step, box_size);
     }
 
     printf("N_particles = %d\n", n_particles);
@@ -620,8 +634,6 @@ int main(int argc, char const *argv[])
         exit(EXIT_FAILURE);
     }
 
-    //-------------------------------------------
-
     long metropolis_accepted_steps = 0;
     double energy = 0;
 
@@ -633,8 +645,8 @@ int main(int argc, char const *argv[])
     }
     else
     {
-        init_system_lattice(pos_array, charge_array, mass_array, n_particles, box_size, lattice_type, n_cell_per_row);
-        // init_system(pos_array, charge_array, mass_array, n_particles, space_dimension, box_size);
+        // init_system_lattice(pos_array, charge_array, mass_array, n_particles, box_size, lattice_type, n_cell_per_row);
+        init_system(pos_array, charge_array, mass_array, n_particles, space_dimension, box_size);
         energy = pb_compute_total_energy(pos_array, charge_array, n_particles, space_dimension, box_size);
     }
 
@@ -642,28 +654,49 @@ int main(int argc, char const *argv[])
 
     save_particle_state_csv("./output/start_position_file.csv", pos_array, charge_array, n_particles, space_dimension);
 
+    /**
+     * Verlet list
+     *
+     */
+
+    const double r_cut = 2.5 * SIGMA;
+    const double skin = 0.3 * r_cut;
+
+    double *old_pos_array = (double *)malloc(total_vel_pos_array_size * sizeof(double));
+    if (old_pos_array == NULL)
+        exit(EXIT_FAILURE);
+
+    VerletList_t *verlet_list = (VerletList_t *)malloc(sizeof(VerletList_t) * n_particles);
+    if (verlet_list == NULL)
+        exit(EXIT_FAILURE);
+
+    pb_build_verlet_list(pos_array, old_pos_array, verlet_list, n_particles, space_dimension, box_size, r_cut, skin);
+
+    // print_verlet_list(verlet_list, n_particles);
+
     // Choose type of simulation
-    int simulation_type = 0;
+    enum SIMULATION_TYPE simulation_type = INCREASING_T;
 
     switch (simulation_type)
     {
-    case 0:
-        goto INCREASE_TEMPERATURE_METHOD;
+    case INCREASING_T:
+        goto INCREASE_TEMPERATURE_SIMULATION;
         break;
 
-    case 1:
+    case SINGLE_T:
         goto SINGLE_TEMPERATURE_SIMULATION;
         break;
-    default:
+
+    case NONE:
         goto FREE_SECTION;
         break;
     }
 
     //-------------------------------------------------------------------------------------------------
 
-INCREASE_TEMPERATURE_METHOD:
+INCREASE_TEMPERATURE_SIMULATION:
 
-    /** |---- INCREASE T METHOD -----|
+    /** |---- INCREASE T DESCRIPTION -----|
      * Start from a system configuration and define a starting temperature T, a temperature step dT
      * and a number of temperature step N (T_max = Tmin + NdT)
      *
@@ -683,13 +716,14 @@ INCREASE_TEMPERATURE_METHOD:
      * NOTE: The total number of steps is (N_step_thermalization + N_step_data) * N_temperatures
      */
 
-    const double temp_min = 0.6;
-    const double temp_max = 0.75;
+    const double temperature_min = 0.6;
+    const double temperature_max = 0.75;
     const int N_temperatures = 5;
-    const double dT = (temp_max - temp_min) / N_temperatures;
+    const double dT = (temperature_max - temperature_min) / N_temperatures;
 
     const int N_step_thermalization = 10000;
     const int N_step_data = 50000;
+    const int N_step_tot = N_step_thermalization + N_step_data;
 
     double *energy_array = (double *)malloc(sizeof(double) * N_step_data);
     if (energy_array == NULL)
@@ -707,21 +741,23 @@ INCREASE_TEMPERATURE_METHOD:
     {
         clock_t begin_time = clock(); // Save starting time, used for ETA in progress bar
 
-        double temperature = temp_min + i * dT;
+        double temperature = temperature_min + i * dT;
         printf("T = %lf\n", temperature);
 
         // Termalizations steps plus data steps
-        for (size_t j = 0; j < N_step_thermalization + N_step_data; j++)
+        for (size_t j = 0; j < N_step_tot; j++)
         {
             // Progress bar
-            if (j % ((N_step_thermalization + N_step_data) / 100) == 0)
+            if (j % (N_step_tot / 100) == 0)
             {
-                print_progress(j, N_step_thermalization + N_step_data, begin_time);
+                print_progress(j, N_step_tot, begin_time);
                 printf(" %d/%d", (int)i + 1, N_temperatures);
                 fflush(stdout);
             }
 
             energy = pb_metropolis_step_one_particle(energy, pos_array, charge_array, space_step, temperature, n_particles, space_dimension, &metropolis_accepted_steps, box_size);
+
+            // TODO: add verlet list update and usage
 
             fprintf(energy_file, "%lf\n", energy);
 
@@ -745,6 +781,11 @@ INCREASE_TEMPERATURE_METHOD:
         sprintf(filename, "./state_saves_binaries/checkpoint_T%.3f.bin", temperature);
         save_checkpoint_binary(filename, pos_array, n_particles, space_dimension, energy);
     }
+
+    free(energy_array);
+    free(specific_heat_array);
+    fclose(specific_heat_file);
+
     goto FREE_SECTION;
 
     //-------------------------------------------------------------------------------------------------
@@ -810,10 +851,10 @@ FREE_SECTION:
     free(vel_array);
     free(mass_array);
     free(charge_array);
-    // free(specific_heat_array);
+    free(verlet_list);
+    free(old_pos_array);
 
     fclose(energy_file);
-    // fclose(specific_heat_file);
     fclose(radial_distribution_file);
 
     return 0;

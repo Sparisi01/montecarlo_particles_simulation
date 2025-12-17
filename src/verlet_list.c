@@ -2,7 +2,7 @@
 #define VERLET_LIST_H
 
 // Expected to be desnity * sphere volume
-#define MAX_NEIGHBORS 100
+#define MAX_NEIGHBORS 256
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -87,4 +87,17 @@ int pb_needs_rebuild(const double *pos_array,
     return 0;
 }
 
+void print_verlet_list(VerletList_t *vl,
+                       int n_particles)
+{
+    int max_count = 0;
+    printf("PRINTING VERLET LIST\n");
+    for (size_t i = 0; i < n_particles; i++)
+    {
+        printf("Particle %zu, count %d\n", i, vl[i].count);
+        if (vl[i].count > max_count)
+            max_count = vl[i].count;
+    }
+    printf("Max count: %d", max_count);
+}
 #endif
