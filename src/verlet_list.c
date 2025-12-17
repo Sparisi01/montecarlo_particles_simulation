@@ -2,7 +2,7 @@
 #define VERLET_LIST_H
 
 // Expected to be desnity * sphere volume
-#define MAX_NEIGHBORS 256
+#define MAX_NEIGHBORS 400
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -15,7 +15,7 @@ struct VerletList_t
     int list[MAX_NEIGHBORS]; // List of indexes
 } typedef VerletList_t;
 
-void pb_build_verlet_list(const double *pos_array,
+void verlet_pb_build_list(const double *pos_array,
                           double *old_pos_array,
                           VerletList_t *vl,
                           int n_particles,
@@ -62,12 +62,12 @@ void pb_build_verlet_list(const double *pos_array,
     memcpy(old_pos_array, pos_array, total_array_size);
 }
 
-int pb_needs_rebuild(const double *pos_array,
-                     const double *old_pos_array,
-                     int n_particles,
-                     int space_dim,
-                     double box_size,
-                     double skin)
+int verlet_pb_needs_rebuild(const double *pos_array,
+                            const double *old_pos_array,
+                            int n_particles,
+                            int space_dim,
+                            double box_size,
+                            double skin)
 {
     double limit2 = (skin * 0.5) * (skin * 0.5);
 
@@ -87,17 +87,16 @@ int pb_needs_rebuild(const double *pos_array,
     return 0;
 }
 
-void print_verlet_list(VerletList_t *vl,
-                       int n_particles)
+int get_max_verlet_count(VerletList_t *vl,
+                         int n_particles)
 {
     int max_count = 0;
-    printf("PRINTING VERLET LIST\n");
+
     for (size_t i = 0; i < n_particles; i++)
     {
-        printf("Particle %zu, count %d\n", i, vl[i].count);
         if (vl[i].count > max_count)
             max_count = vl[i].count;
     }
-    printf("Max count: %d", max_count);
+    return max_count;
 }
 #endif

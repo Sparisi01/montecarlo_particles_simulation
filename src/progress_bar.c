@@ -40,8 +40,7 @@ void print_progress(size_t current, size_t total, clock_t start_time)
     int eta_h = (int)eta / 3600;
     int eta_m = ((int)eta % 3600) / 60;
     int eta_s = (int)eta % 60;
-
-    printf("\r[");
+    printf("\r\033[2K[");
 
     for (int i = 0; i < barWidth; i++)
     {
