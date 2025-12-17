@@ -956,7 +956,7 @@ SINGLE_TEMPERATURE_SIMULATION:
      * there is time correlation between metropolis steps. This is not a huge problem for g(r) but it is
      * when we compute the std of thermodinamic quantities.
      *
-     * Following test has been succesfully performed (all starting from FCC lattice without coulomb):
+     * Following test has been succesfully performed (all starting from FCC lattice with only lennar jones potential):
      *
      * - (density = 0.1, T = 1.1) gas behaviour can be observed. g(r) has a strong peak around 1 (the minimum of lennar jones potential) and
      * for hight distances the density is constant.
