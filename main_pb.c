@@ -195,7 +195,6 @@ void save_particle_state_csv(const char *filename,
     {
         for (size_t j = 0; j < space_dim; j++)
         {
-            double x = pos_array[c(i, j)];
             fprintf(f, "%f;", pos_array[c(i, j)]);
         }
         fprintf(f, "%f\n", charge_array[i]);
@@ -309,7 +308,7 @@ double pb_compute_total_energy(const double *pos_array,
 {
     double total_energy = 0;
     total_energy += pb_compute_lennar_jones_energy(pos_array, charge_array, n_particles, space_dim, box_size);
-    // total_energy += ewd_total_coulomb_energy(pos_array, charge_array, n_particles, box_size);
+    total_energy += ewd_total_coulomb_energy(pos_array, charge_array, n_particles, box_size);
 
     return total_energy;
 }
@@ -419,7 +418,7 @@ double pb_verlet_compute_total_energy(const double *pos_array,
 {
     double total_energy = 0;
     total_energy += pb_verlet_compute_lennar_jones_energy(pos_array, charge_array, verlet_list, n_particles, space_dim, box_size);
-    // total_energy += ewd_total_coulomb_energy(pos_array, charge_array, n_particles, box_size);
+    total_energy += ewd_total_coulomb_energy(pos_array, charge_array, n_particles, box_size);
 
     return total_energy;
 }
@@ -637,6 +636,14 @@ double verlet_pb_metropolis_step_one_particle(double energy,
         perm[j] = tmp;
     }
 
+    static double *old_position = NULL;
+    if (old_position == NULL)
+    {
+        old_position = (double *)malloc(sizeof(double) * n_particles * space_dim);
+    }
+
+    memcpy(old_position, pos_array, n_particles * space_dim);
+
     // Keep track of space shifts for the current particle
     double steps_save[space_dim];
 
@@ -646,8 +653,8 @@ double verlet_pb_metropolis_step_one_particle(double energy,
         int i = perm[p];
 
         double old_energy = pb_verlet_compute_i_lennar_jones_potential(i, pos_array, charge_array, vl, n_particles, space_dim, box_size);
-        old_energy += ewd_i_real_space_coulomb_energy(i, pos_array, charge_array, n_particles, box_size);
-        old_energy += ewd_reciprocal_space_coulomb_energy(pos_array, charge_array, n_particles, box_size);
+        old_energy += ewd_verlet_i_real_space_coulomb_energy(i, pos_array, charge_array, vl, n_particles, box_size);
+        // old_energy += ewd_reciprocal_space_coulomb_energy(pos_array, charge_array, n_particles, box_size);
 
         // Random step in j direction between -delta and + delta
         for (int j = 0; j < space_dim; j++)
@@ -659,10 +666,12 @@ double verlet_pb_metropolis_step_one_particle(double energy,
         }
 
         double new_energy = pb_verlet_compute_i_lennar_jones_potential(i, pos_array, charge_array, vl, n_particles, space_dim, box_size);
-        new_energy += ewd_i_real_space_coulomb_energy(i, pos_array, charge_array, n_particles, box_size);
-        new_energy += ewd_reciprocal_space_coulomb_energy(pos_array, charge_array, n_particles, box_size);
+        new_energy += ewd_verlet_i_real_space_coulomb_energy(i, pos_array, charge_array, vl, n_particles, box_size);
+        // new_energy += ewd_reciprocal_space_coulomb_energy(pos_array, charge_array, n_particles, box_size);
 
-        double dE = new_energy - old_energy;
+        double dE_ewald = ewd_delta_reciprocal_energy(i, pos_array, old_position, charge_array, box_size);
+
+        double dE = new_energy - old_energy + dE_ewald;
 
         /** Metropolis acceptance criterion
          *
@@ -683,9 +692,12 @@ double verlet_pb_metropolis_step_one_particle(double energy,
 
             energy += dE;
 
+            updateS_k(i, pos_array, old_position, charge_array, box_size);
+
             for (int j = 0; j < space_dim; j++)
             {
                 pos_array[c(i, j)] = pb_wrap_position(pos_array[c(i, j)], box_size);
+                old_position[c(i, j)] = pos_array[c(i, j)];
             }
         }
         else
@@ -712,7 +724,7 @@ int main(int argc, char const *argv[])
      */
     const int lattice_type = 4;   // Lattice type 1 CC, 2 BCC, 4 FCC
     const int n_cell_per_row = 4; // Number of lattice cell per row
-    const double density = 0.1;
+    const double density = 1.2;
 
     const int space_dimension = 3; // 1D - 2D - 3D - ... - nD
 
@@ -822,7 +834,7 @@ int main(int argc, char const *argv[])
      * we how which std it has, sqrt(N).
      */
     const double r_cut = 2.5 * SIGMA;
-    const double skin = 1.5 * r_cut;
+    const double skin = 0.5 * r_cut;
 
     double *old_pos_array = (double *)malloc(total_vel_pos_array_size * sizeof(double));
     if (old_pos_array == NULL)
@@ -834,6 +846,9 @@ int main(int argc, char const *argv[])
 
     verlet_pb_build_list(pos_array, old_pos_array, verlet_list, n_particles, space_dimension, box_size, r_cut, skin);
 
+    optimizeParameter(1, box_size, charge_array, n_particles);
+    init_Sk(pos_array, charge_array, n_particles, box_size);
+
     if (!restart_from_checkpoint)
     {
         energy = pb_verlet_compute_total_energy(pos_array, charge_array, verlet_list, n_particles, space_dimension, box_size);
@@ -841,8 +856,6 @@ int main(int argc, char const *argv[])
 
     // Print a lot of informations about the simulation in order to spot possible errors at the start of simulation
     print_simulation_information(n_particles, box_size, verlet_list, energy, pos_array, charge_array, space_dimension, density);
-
-    optimizeParameter(1e-2, box_size, charge_array, n_particles);
 
     // Choose type of simulation
     enum SIMULATION_TYPE simulation_type = SINGLE_T;
@@ -980,9 +993,10 @@ SINGLE_TEMPERATURE_SIMULATION:
      * - (density = 1.3, T = 1.1) solid behaviour can be observed. g(r) has a lot of strong peaks.
      */
 
-    int n_metropolis_step = 10000;
-    int n_termalization = 5000;
-    double temperature = 1.1;
+    const int N_data_steps = 10000;
+    const int N_thermalization_steps = 5000;
+    const int N_metropolis_steps = N_thermalization_steps + N_data_steps;
+    double temperature = 8;
 
     printf(" Temperature : %.3f\n", temperature);
     printf("-------------------------------------\n");
@@ -992,7 +1006,7 @@ SINGLE_TEMPERATURE_SIMULATION:
     int min_counting_verlet = INT32_MAX;
 
     clock_t begin_time = clock();
-    for (size_t i = 0; i < n_metropolis_step; i++)
+    for (size_t i = 0; i < N_metropolis_steps; i++)
     {
         counting_verlet++;
 
@@ -1010,10 +1024,10 @@ SINGLE_TEMPERATURE_SIMULATION:
             counting_verlet = 0;
         }
 
-        if (i % ((n_metropolis_step / 100) + 1) == 0)
+        if (i % (N_metropolis_steps / 100) == 0)
         {
             // Progress Bar
-            print_progress(i, n_metropolis_step, begin_time);
+            print_progress(i, N_metropolis_steps, begin_time);
             printf(" - Min number of step before update: %d", min_counting_verlet);
 
             fflush(stdout);
@@ -1021,7 +1035,7 @@ SINGLE_TEMPERATURE_SIMULATION:
         }
 
         // Trashold for termalization
-        if (i > n_termalization & i % 100 == 0)
+        if ((i > N_thermalization_steps) & (i % 100 == 0))
         {
             n_radial_distributions_performed++;
             radial_distribution(pos_array, n_particles, space_dimension, box_size, bin_counting_array, N_bins, bin_interval);
@@ -1031,7 +1045,7 @@ SINGLE_TEMPERATURE_SIMULATION:
          * Save energy every 10 steps to reduce time correlation, one whould do a better analysis than this. I expect the correlation to be
          * much highter than 10 but this requires further investigations
          */
-        if (i > n_termalization & i % 10 == 0)
+        if ((i > 0))
         {
             fprintf(energy_file, "%lf\n", energy);
         }

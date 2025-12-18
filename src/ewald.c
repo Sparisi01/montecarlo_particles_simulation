@@ -10,6 +10,7 @@
 
 #include "constants.c"
 #include "periodic_boundaries.c"
+#include "verlet_list.c"
 
 #define EWD_EPSILON 1e-8
 #define EWD_PRECISION 1e-1
@@ -61,7 +62,7 @@ static double findSbybisection(double a, double b, double error, double Q, doubl
     return c;
 }
 
-double optimizeParameter(double error, double box_size, const double *charge_array, int n_particles)
+void optimizeParameter(double error, double box_size, const double *charge_array, int n_particles)
 {
     optimized = 1;
 
@@ -88,7 +89,7 @@ double optimizeParameter(double error, double box_size, const double *charge_arr
 }
 
 // Simple parameter oprimization
-static inline double ewd_alpha_by_precision(double precision)
+static inline void ewd_alpha_by_precision(double precision)
 {
     alpha = sqrt(-log(precision));
 }
@@ -155,6 +156,60 @@ double ewd_i_real_space_coulomb_energy(int i, const double *pos_array, const dou
 
     for (size_t j = 0; j < n_particles; j++)
     {
+        for (int r_x = -_R_RANGE_EWALD; r_x <= _R_RANGE_EWALD; r_x++)
+        {
+            for (int r_y = -_R_RANGE_EWALD; r_y <= _R_RANGE_EWALD; r_y++)
+            {
+                for (int r_z = -_R_RANGE_EWALD; r_z <= _R_RANGE_EWALD; r_z++)
+                {
+                    // Exclude self particle in cell (0,0,0)
+                    if (r_x == 0 && r_y == 0 && r_z == 0 && i == j)
+                        continue;
+
+                    double r_ij_x = pos_array[c(i, 0)] - pos_array[c(j, 0)];
+                    double r_ij_y = pos_array[c(i, 1)] - pos_array[c(j, 1)];
+                    double r_ij_z = pos_array[c(i, 2)] - pos_array[c(j, 2)];
+
+                    // First image convention
+                    r_ij_x = pb_minimum_image(r_ij_x, box_size) + r_x * box_size;
+                    r_ij_y = pb_minimum_image(r_ij_y, box_size) + r_y * box_size;
+                    r_ij_z = pb_minimum_image(r_ij_z, box_size) + r_z * box_size;
+
+                    double r_ij_mod2 = r_ij_x * r_ij_x + r_ij_y * r_ij_y + r_ij_z * r_ij_z;
+
+                    // In first image convention _CUTOFF must be less than L/2
+                    if (r_ij_mod2 > real_cutoff * real_cutoff)
+                        continue;
+                    if (r_ij_mod2 < EWD_EPSILON)
+                        goto PARTICLE_OVERLAP_ERROR;
+
+                    // Avoid Sqrt if not needed
+                    double r_ij_mod = sqrt(r_ij_mod2);
+
+                    real_space_i_energy += (charge_array[i] * charge_array[j]) * erfc(alpha * r_ij_mod) / r_ij_mod;
+                }
+            }
+        }
+    }
+
+    return real_space_i_energy;
+
+// Error handling
+PARTICLE_OVERLAP_ERROR:
+    printf("ERROR: particle overlap");
+    exit(EXIT_FAILURE);
+}
+
+double ewd_verlet_i_real_space_coulomb_energy(int i, const double *pos_array, const double *charge_array, const VerletList_t *vl, int n_particles, double box_size)
+{
+    const int _R_RANGE_EWALD = 0; // Set to 0 first image convention
+
+    double real_space_i_energy = 0;
+
+    for (size_t v = 0; v < vl[i].count; v++)
+    {
+        int j = vl[i].list[v];
+
         for (int r_x = -_R_RANGE_EWALD; r_x <= _R_RANGE_EWALD; r_x++)
         {
             for (int r_y = -_R_RANGE_EWALD; r_y <= _R_RANGE_EWALD; r_y++)
@@ -406,7 +461,7 @@ void init_Sk(const double *pos_array, const double *charge_array, int n_particle
     fillS_k(pos_array, charge_array, n_particles, box_size);
 }
 
-double delta_reciprocal_energy(int i, const double *new_pos_array, const double *old_pos_array, const double *charge_array, double box_size)
+double ewd_delta_reciprocal_energy(int i, const double *new_pos_array, const double *old_pos_array, const double *charge_array, double box_size)
 {
 
     const double base_frequency = (2 * PI / box_size);

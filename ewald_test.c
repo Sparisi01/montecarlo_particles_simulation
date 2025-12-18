@@ -66,7 +66,7 @@ int main(void)
         double dE_brute = E1 - E0;
 
         /* --- incremental delta --- */
-        double dE_inc = delta_reciprocal_energy(
+        double dE_inc = ewd_delta_reciprocal_energy(
             i, pos_new, pos, charge, box_size);
 
         double err = fabs(dE_brute - dE_inc);
