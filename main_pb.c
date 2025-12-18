@@ -445,21 +445,32 @@ void init_system_lattice(double *pos_array,
     // lattice_type 1 CC, 2 BCC, 4 FCC
 
     Vec3 lattice_positions[lattice_type];
+    int basis_parity[lattice_type];
 
     switch (lattice_type)
     {
     case 1: // CC
         lattice_positions[0] = (Vec3){0, 0, 0};
+        basis_parity[0] = 0;
+        basis_parity[1] = 1;
+        basis_parity[2] = 1;
+        basis_parity[3] = 1;
         break;
     case 2: // BCC
         lattice_positions[0] = (Vec3){0, 0, 0};
         lattice_positions[1] = (Vec3){0.5, 0.5, 0.5};
+        basis_parity[0] = 0;
+        basis_parity[1] = 1;
         break;
     case 4: // FCC
         lattice_positions[0] = (Vec3){0, 0, 0};
         lattice_positions[1] = (Vec3){0, 0.5, 0.5};
         lattice_positions[2] = (Vec3){0.5, 0.5, 0};
         lattice_positions[3] = (Vec3){0.5, 0, 0.5};
+        basis_parity[0] = 0;
+        basis_parity[1] = 1;
+        basis_parity[2] = 1;
+        basis_parity[3] = 1;
         break;
     default:
         break;
@@ -480,7 +491,9 @@ void init_system_lattice(double *pos_array,
                     pos_array[c(n_particle_placed, 1)] = (n_cell_y + lattice_positions[w].y) * single_cell_length;
                     pos_array[c(n_particle_placed, 2)] = (n_cell_z + lattice_positions[w].z) * single_cell_length;
 
-                    charge_array[n_particle_placed] = (n_particle_placed % 2 == 0) ? 1 : -1;
+                    int parity = (n_cell_x + n_cell_y + n_cell_z + basis_parity[w]) % 2;
+                    charge_array[n_particle_placed] = (parity == 0) ? 1.0 : -1.0;
+
                     mass_array[n_particle_placed] = 1;
 
                     n_particle_placed++;
@@ -633,6 +646,8 @@ double verlet_pb_metropolis_step_one_particle(double energy,
         int i = perm[p];
 
         double old_energy = pb_verlet_compute_i_lennar_jones_potential(i, pos_array, charge_array, vl, n_particles, space_dim, box_size);
+        old_energy += ewd_i_real_space_coulomb_energy(i, pos_array, charge_array, n_particles, box_size);
+        old_energy += ewd_reciprocal_space_coulomb_energy(pos_array, charge_array, n_particles, box_size);
 
         // Random step in j direction between -delta and + delta
         for (int j = 0; j < space_dim; j++)
@@ -644,6 +659,9 @@ double verlet_pb_metropolis_step_one_particle(double energy,
         }
 
         double new_energy = pb_verlet_compute_i_lennar_jones_potential(i, pos_array, charge_array, vl, n_particles, space_dim, box_size);
+        new_energy += ewd_i_real_space_coulomb_energy(i, pos_array, charge_array, n_particles, box_size);
+        new_energy += ewd_reciprocal_space_coulomb_energy(pos_array, charge_array, n_particles, box_size);
+
         double dE = new_energy - old_energy;
 
         /** Metropolis acceptance criterion
@@ -692,8 +710,8 @@ int main(int argc, char const *argv[])
      * lattice_type & n_cell_per_row define the number of particles,
      * density and number of particles define the box size.
      */
-    const int lattice_type = 4;    // Lattice type 1 CC, 2 BCC, 4 FCC
-    const int n_cell_per_row = 10; // Number of lattice cell per row
+    const int lattice_type = 4;   // Lattice type 1 CC, 2 BCC, 4 FCC
+    const int n_cell_per_row = 4; // Number of lattice cell per row
     const double density = 0.1;
 
     const int space_dimension = 3; // 1D - 2D - 3D - ... - nD
@@ -722,10 +740,6 @@ int main(int argc, char const *argv[])
 
     double *pos_array = (double *)malloc(total_vel_pos_array_size * sizeof(double));
     if (pos_array == NULL)
-        exit(EXIT_FAILURE);
-
-    double *vel_array = (double *)malloc(total_vel_pos_array_size * sizeof(double));
-    if (vel_array == NULL)
         exit(EXIT_FAILURE);
 
     double *charge_array = (double *)malloc(n_particles * sizeof(double));
@@ -808,7 +822,7 @@ int main(int argc, char const *argv[])
      * we how which std it has, sqrt(N).
      */
     const double r_cut = 2.5 * SIGMA;
-    const double skin = 2 * r_cut;
+    const double skin = 1.5 * r_cut;
 
     double *old_pos_array = (double *)malloc(total_vel_pos_array_size * sizeof(double));
     if (old_pos_array == NULL)
@@ -827,6 +841,8 @@ int main(int argc, char const *argv[])
 
     // Print a lot of informations about the simulation in order to spot possible errors at the start of simulation
     print_simulation_information(n_particles, box_size, verlet_list, energy, pos_array, charge_array, space_dimension, density);
+
+    optimizeParameter(1e-2, box_size, charge_array, n_particles);
 
     // Choose type of simulation
     enum SIMULATION_TYPE simulation_type = SINGLE_T;
@@ -1047,7 +1063,6 @@ SINGLE_TEMPERATURE_SIMULATION:
 FREE_SECTION:
 
     free(pos_array);
-    free(vel_array);
     free(mass_array);
     free(charge_array);
     free(verlet_list);
