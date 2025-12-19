@@ -4,7 +4,7 @@
  *
  * @details
  *
- * @author
+ * @author Parisi Simone and Lenz Patrick
  * @date 17 December 2025
  */
 
@@ -32,10 +32,6 @@ enum SIMULATION_TYPE
 
 /**
  * @brief given an array arr of double and size N compute the mean = sum(arr[i])/N
- *
- * @param arr
- * @param n
- * @return double
  */
 double array_mean(double *arr, int n)
 {
@@ -49,10 +45,6 @@ double array_mean(double *arr, int n)
 
 /**
  * @brief given an array arr of double and size N compute the mean of squares = sum(arr[i]^2)/N
- *
- * @param arr
- * @param n
- * @return double
  */
 double array_mean2(double *arr, int n)
 {
@@ -66,20 +58,14 @@ double array_mean2(double *arr, int n)
 
 /**
  * @brief given an array arr of double and size N compute the variance
- *
- * @param arr
- * @param n
- * @return double
  */
 double array_var(double *arr, int n)
 {
     return array_mean2(arr, n) - array_mean(arr, n) * array_mean(arr, n);
 }
 
-// ------------------------------------------------------------------
-
 /**
- * Function to save and retrieve the current system and rng state using bin file for efficency.
+ * @brief Function to save the current system and rng state in a bin file.
  * Used to start a simulation from a fixed point in time instead of having to simulate all over again.
  * Usefull for study more precisely certain range of parameters.
  */
@@ -111,6 +97,11 @@ void save_checkpoint_binary(const char *filename,
     fclose(f);
 }
 
+/**
+ * @brief Function to load a system and rng state from a bin file.
+ * Used to start a simulation from a fixed point in time instead of having to simulate all over again.
+ * Usefull for study more precisely certain range of parameters.
+ */
 void load_checkpoint_binary(const char *filename,
                             double *pos_array,
                             int n_particles,
@@ -147,8 +138,9 @@ void load_checkpoint_binary(const char *filename,
     fclose(f);
 }
 
-// ------------------------------------------------------------------
-
+/**
+ * @brief Compute the radial distribution storing the counting in a bin array "bins_array" of bin size "bin_interval"
+ */
 void radial_distribution(const double *pos_array,
                          int n_particles,
                          int space_dim,
@@ -176,8 +168,9 @@ void radial_distribution(const double *pos_array,
     }
 }
 
-// ------------------------------------------------------------------
-
+/**
+ * @brief Save particles position and charge state in a csv file, easy to read in python for data analysis.
+ */
 void save_particle_state_csv(const char *filename,
                              double *pos_array,
                              double *charge_array,
@@ -203,13 +196,16 @@ void save_particle_state_csv(const char *filename,
     fclose(f);
 }
 
-// ------------------------------------------------------------------
-
 /**
- * Compute the lennar jones potential associated with a particle interacting
+ * @brief Compute the lennar jones potential associated with a particle interacting
  * with all the others, in periodic boundary condition.
  * It work regarding the space dimension.
- * A cut-off rc is applied in order to reduce computations.
+ *
+ * Apply space cutoff r_c using the fact that the lennar jones potential
+ * is low range and a lot of interaction can be truncated without
+ * losing accuracy. In order to mantain the continuity of V at r = r_c
+ * we perform an energy vertical shift (VSHIFT). This shift is the same
+ * for all the simulation, so it has to be computed only once.
  */
 double pb_compute_i_lennar_jones_potential(int i,
                                            const double *pos_array,
@@ -240,13 +236,6 @@ double pb_compute_i_lennar_jones_potential(int i,
             r2 += dx * dx;
         }
 
-        /**
-         * Apply space cutoff using the fact that the lennar jones potential
-         * is low range and a lot of interaction can be truncated without
-         * losing accuracy. In order to mantain the continuity of V at r = r_c
-         * we perform an energy vertical shift (VSHIFT). This shift is the same
-         * for all the simulation, so it has to be computed only once.
-         */
         double r_c = 2.5 * SIGMA;
 
         if (r2 > r_c * r_c)
@@ -264,9 +253,9 @@ double pb_compute_i_lennar_jones_potential(int i,
         }
 
         // Low cutoff in order to avoid computation error
-        if (r2 < 1e-6)
+        if (r2 < 1e-8)
         {
-            r2 = 1e-6;
+            r2 = 1e-8;
         }
 
         double inv_r2 = 1. / r2;
@@ -281,6 +270,11 @@ double pb_compute_i_lennar_jones_potential(int i,
     return energy_i;
 }
 
+/**
+ * @brief Compute the total lennar jones potential in periodic boundary condition using "pb_compute_i_lennar_jones_potential".
+ * See that for more.
+ * It work regarding the space dimension.
+ */
 double pb_compute_lennar_jones_energy(const double *pos_array,
                                       const double *charge_array,
                                       int n_particles,
@@ -299,7 +293,12 @@ double pb_compute_lennar_jones_energy(const double *pos_array,
     return energy;
 }
 
-// Given the system of N particle in D dimensional space compute the total interaction energy
+/**
+ * Given the system of N particle in D dimensional space compute the total interaction energy under periodic boudary conditions.
+ * By default only Lennar Jones potential is used. If at least 2 particles have a charge different from 0 the coulomb potential is turned on.
+ *
+ * @note Coulomb potential is computed used Ewald Summation and it requires a space dimension of 3.
+ */
 double pb_compute_total_energy(const double *pos_array,
                                const double *charge_array,
                                int n_particles,
@@ -308,7 +307,38 @@ double pb_compute_total_energy(const double *pos_array,
 {
     double total_energy = 0;
     total_energy += pb_compute_lennar_jones_energy(pos_array, charge_array, n_particles, space_dim, box_size);
-    total_energy += ewd_total_energy(pos_array, charge_array, n_particles, box_size);
+
+    static int coulomb_interaction_ON = 2;
+    if (coulomb_interaction_ON == 2)
+    {
+        int charges_count = 0;
+
+        for (size_t i = 0; i < n_particles; i++)
+        {
+            if (charge_array[i] != 0)
+            {
+                charges_count++;
+            }
+        }
+        if (charges_count >= 2)
+
+        {
+            coulomb_interaction_ON = 1;
+        }
+        else
+        {
+            coulomb_interaction_ON = 0;
+        }
+    }
+
+    if (coulomb_interaction_ON)
+    {
+        if (space_dim != 3)
+        {
+            fprintf(stderr, "Error: Ewald Summation require a space dimension of 3\n");
+        }
+        total_energy += ewd_total_energy(pos_array, charge_array, n_particles, box_size);
+    }
 
     return total_energy;
 }

@@ -48,7 +48,7 @@ static double complex *S_K = NULL;
  * these optimized parameters, used in combination with verlet list, bring the complexity
  * of one ewd_total_energy from O(N) to O(N^3/2).
  *
- * TODO: cite the paper for this part
+ * @cite TODO: cite the paper for this part
  */
 
 static double errorsDifference(double error, double s, double Q2, double cell_length)
