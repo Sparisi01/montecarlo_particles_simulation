@@ -8,6 +8,7 @@
 #include <stdio.h>
 
 #include "constants.c"
+#include "periodic_boundaries.c"
 
 struct VerletList_t
 {
@@ -87,6 +88,9 @@ int verlet_pb_needs_rebuild(const double *pos_array,
     return 0;
 }
 
+/**
+ * @brief Get max number of neightbours in the verlet list
+ */
 int get_max_verlet_count(VerletList_t *vl,
                          int n_particles)
 {

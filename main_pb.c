@@ -17,6 +17,9 @@
 #include <string.h>
 
 #include "src/constants.c"
+#include "src/checkpoints_handler.c"
+#include "src/arrays_stat_operations.c"
+#include "src/lennar_jones.c"
 #include "src/periodic_boundaries.c"
 #include "src/ewald.c"
 #include "src/progress_bar.c"
@@ -29,114 +32,6 @@ enum SIMULATION_TYPE
     INCREASING_T,
     NONE
 };
-
-/**
- * @brief given an array arr of double and size N compute the mean = sum(arr[i])/N
- */
-double array_mean(double *arr, int n)
-{
-    double mean = 0;
-    for (size_t i = 0; i < n; i++)
-    {
-        mean += arr[i];
-    }
-    return mean / n;
-}
-
-/**
- * @brief given an array arr of double and size N compute the mean of squares = sum(arr[i]^2)/N
- */
-double array_mean2(double *arr, int n)
-{
-    double mean2 = 0;
-    for (size_t i = 0; i < n; i++)
-    {
-        mean2 += arr[i] * arr[i];
-    }
-    return mean2 / n;
-}
-
-/**
- * @brief given an array arr of double and size N compute the variance
- */
-double array_var(double *arr, int n)
-{
-    return array_mean2(arr, n) - array_mean(arr, n) * array_mean(arr, n);
-}
-
-/**
- * @brief Function to save the current system and rng state in a bin file.
- * Used to start a simulation from a fixed point in time instead of having to simulate all over again.
- * Usefull for study more precisely certain range of parameters.
- */
-void save_checkpoint_binary(const char *filename,
-                            const double *pos_array,
-                            int n_particles,
-                            int space_dim,
-                            double energy)
-{
-    FILE *f = fopen(filename, "wb");
-    if (!f)
-    {
-        perror("Checkpoint save failed");
-        exit(EXIT_FAILURE);
-    }
-
-    fwrite(&n_particles, sizeof(int), 1, f);
-    fwrite(&space_dim, sizeof(int), 1, f);
-
-    fwrite(&energy, sizeof(double), 1, f);
-
-    fwrite(pos_array, sizeof(double), n_particles * space_dim, f);
-
-    // Save rng state
-    unsigned short rng_state[3];
-    erand48(rng_state);
-    fwrite(rng_state, sizeof(unsigned short), 3, f);
-
-    fclose(f);
-}
-
-/**
- * @brief Function to load a system and rng state from a bin file.
- * Used to start a simulation from a fixed point in time instead of having to simulate all over again.
- * Usefull for study more precisely certain range of parameters.
- */
-void load_checkpoint_binary(const char *filename,
-                            double *pos_array,
-                            int n_particles,
-                            int space_dim,
-                            double *energy)
-{
-    FILE *f = fopen(filename, "rb");
-    if (!f)
-    {
-        perror("Checkpoint load failed");
-        exit(EXIT_FAILURE);
-    }
-
-    int n_p, s_d;
-    fread(&n_p, sizeof(int), 1, f);
-    fread(&s_d, sizeof(int), 1, f);
-
-    if (n_p != n_particles || s_d != space_dim)
-    {
-        fprintf(stderr, "ERROR: Incompatible checkpoint. N particle or space dimension missmatch\n");
-        exit(EXIT_FAILURE);
-    }
-
-    fread(energy, sizeof(double), 1, f);
-
-    fread(pos_array, sizeof(double),
-          n_particles * space_dim, f);
-
-    // Load rng state
-    unsigned short rng_state[3];
-    fread(rng_state, sizeof(unsigned short), 3, f);
-    srand48(rng_state[0]);
-
-    fclose(f);
-}
 
 /**
  * @brief Compute the radial distribution storing the counting in a bin array "bins_array" of bin size "bin_interval"
@@ -197,104 +92,7 @@ void save_particle_state_csv(const char *filename,
 }
 
 /**
- * @brief Compute the lennar jones potential associated with a particle interacting
- * with all the others, in periodic boundary condition.
- * It work regarding the space dimension.
- *
- * Apply space cutoff r_c using the fact that the lennar jones potential
- * is low range and a lot of interaction can be truncated without
- * losing accuracy. In order to mantain the continuity of V at r = r_c
- * we perform an energy vertical shift (VSHIFT). This shift is the same
- * for all the simulation, so it has to be computed only once.
- */
-double pb_compute_i_lennar_jones_potential(int i,
-                                           const double *pos_array,
-                                           const double *charge_array,
-                                           int n_particles,
-                                           int space_dim,
-                                           double box_size)
-{
-    double energy_i = 0;
-
-    for (int k = 0; k < n_particles; k++)
-    {
-
-        static const double sigma_6 = SIGMA * SIGMA * SIGMA * SIGMA * SIGMA * SIGMA;
-        static const double sigma_12 = sigma_6 * sigma_6;
-
-        // Avoid self interaction
-        if (i == k)
-        {
-            continue;
-        }
-
-        double r2 = 0.0;
-
-        for (int j = 0; j < space_dim; j++)
-        {
-            double dx = pb_minimum_image(pos_array[c(i, j)] - pos_array[c(k, j)], box_size);
-            r2 += dx * dx;
-        }
-
-        double r_c = 2.5 * SIGMA;
-
-        if (r2 > r_c * r_c)
-        {
-            continue;
-        }
-
-        static double VSHIFT = 0;
-        if (VSHIFT == 0)
-        {
-            double inv_rc2 = 1. / (r_c * r_c);
-            double inv_rc6 = inv_rc2 * inv_rc2 * inv_rc2;
-            double inv_rc12 = inv_rc6 * inv_rc6;
-            VSHIFT = 4.0 * EPSILON * (sigma_12 * inv_rc12 - sigma_6 * inv_rc6);
-        }
-
-        // Low cutoff in order to avoid computation error
-        if (r2 < 1e-8)
-        {
-            r2 = 1e-8;
-        }
-
-        double inv_r2 = 1. / r2;
-        double inv_r6 = inv_r2 * inv_r2 * inv_r2;
-        double inv_r12 = inv_r6 * inv_r6;
-
-        double V_Lennar_Jones = 4.0 * EPSILON * (sigma_12 * inv_r12 - sigma_6 * inv_r6);
-
-        energy_i += V_Lennar_Jones - VSHIFT;
-    }
-
-    return energy_i;
-}
-
-/**
- * @brief Compute the total lennar jones potential in periodic boundary condition using "pb_compute_i_lennar_jones_potential".
- * See that for more.
- * It work regarding the space dimension.
- */
-double pb_compute_lennar_jones_energy(const double *pos_array,
-                                      const double *charge_array,
-                                      int n_particles,
-                                      int space_dim,
-                                      double box_size)
-{
-    double energy = 0.0;
-
-    for (size_t i = 0; i < n_particles; i++)
-    {
-        energy += pb_compute_i_lennar_jones_potential(i, pos_array, charge_array, n_particles, space_dim, box_size);
-    }
-
-    energy *= 0.5; // remove double counting from pb_compute_one_particle_energy
-
-    return energy;
-}
-
-/**
- * Given the system of N particle in D dimensional space compute the total interaction energy under periodic boudary conditions.
+ * @brief Given the system of N particle in D dimensional space compute the total interaction energy under periodic boudary conditions.
  * By default only Lennar Jones potential is used. If at least 2 particles have a charge different from 0 the coulomb potential is turned on.
  *
  * @note Coulomb potential is computed used Ewald Summation and it requires a space dimension of 3.
@@ -303,10 +101,64 @@ double pb_compute_total_energy(const double *pos_array,
                                const double *charge_array,
                                int n_particles,
                                int space_dim,
-                               double box_size)
+                               double box_size,
+                               double epsilon,
+                               double sigma)
 {
     double total_energy = 0;
-    total_energy += pb_compute_lennar_jones_energy(pos_array, charge_array, n_particles, space_dim, box_size);
+    total_energy += pb_compute_lennar_jones_energy(pos_array, charge_array, n_particles, space_dim, box_size, epsilon, sigma);
+
+    static int coulomb_interaction_ON = 2;
+    if (coulomb_interaction_ON == 2)
+    {
+        int charges_count = 0;
+
+        for (size_t i = 0; i < n_particles; i++)
+        {
+            if (charge_array[i] != 0)
+            {
+                charges_count++;
+            }
+        }
+
+        if (charges_count >= 2)
+
+        {
+            coulomb_interaction_ON = 1;
+        }
+        else
+        {
+            coulomb_interaction_ON = 0;
+        }
+    }
+
+    if (coulomb_interaction_ON)
+    {
+        if (space_dim != 3)
+        {
+            fprintf(stderr, "Error: Ewald Summation require a space dimension of 3\n");
+        }
+        total_energy += ewd_total_energy(pos_array, charge_array, n_particles, box_size);
+    }
+
+    return total_energy;
+}
+
+/**
+ * @brief Same as "pb_compute_total_energy" but using VerletList to decrease computations efford. See "pb_compute_total_energy"
+ * for more on comments.
+ */
+double pb_verlet_compute_total_energy(const double *pos_array,
+                                      const double *charge_array,
+                                      const VerletList_t *verlet_list,
+                                      int n_particles,
+                                      int space_dim,
+                                      double box_size,
+                                      double epsilon,
+                                      double sigma)
+{
+    double total_energy = 0;
+    total_energy += pb_verlet_compute_lennar_jones_energy(pos_array, charge_array, verlet_list, n_particles, space_dim, box_size, epsilon, sigma);
 
     static int coulomb_interaction_ON = 2;
     if (coulomb_interaction_ON == 2)
@@ -337,123 +189,11 @@ double pb_compute_total_energy(const double *pos_array,
         {
             fprintf(stderr, "Error: Ewald Summation require a space dimension of 3\n");
         }
-        total_energy += ewd_total_energy(pos_array, charge_array, n_particles, box_size);
+        total_energy += ewd_verlet_total_energy(pos_array, charge_array, verlet_list, n_particles, box_size);
     }
 
     return total_energy;
 }
-
-// ---------------------------------------------------------------------
-
-double pb_verlet_compute_i_lennar_jones_potential(int i,
-                                                  const double *pos_array,
-                                                  const double *charge_array,
-                                                  const VerletList_t *vl,
-                                                  int n_particles,
-                                                  int space_dim,
-                                                  double box_size)
-{
-    double energy_i = 0;
-
-    for (int v = 0; v < vl[i].count; v++)
-    {
-
-        static const double sigma_6 = SIGMA * SIGMA * SIGMA * SIGMA * SIGMA * SIGMA;
-        static const double sigma_12 = sigma_6 * sigma_6;
-
-        size_t k = vl[i].list[v];
-
-        // Avoid self interaction, should not be a problem
-        // the verlet list does not contain self interaction
-        if (i == k)
-        {
-            continue;
-        }
-
-        double r2 = 0.0;
-
-        for (int j = 0; j < space_dim; j++)
-        {
-            double dx = pb_minimum_image(pos_array[c(i, j)] - pos_array[c(k, j)], box_size);
-            r2 += dx * dx;
-        }
-
-        /**
-         * Apply space cutoff using the fact that the lennar jones potential
-         * is low range and a lot of interaction can be truncated without
-         * losing accuracy. In order to mantain the continuity of V at r = r_c
-         * we perform an energy vertical shift (VSHIFT). This shift is the same
-         * for all the simulation, so it has to be computed only once.
-         */
-        double r_c = 2.5 * SIGMA;
-
-        if (r2 > r_c * r_c)
-        {
-            continue;
-        }
-
-        static double VSHIFT = 0;
-        if (VSHIFT == 0)
-        {
-            double inv_rc2 = 1. / (r_c * r_c);
-            double inv_rc6 = inv_rc2 * inv_rc2 * inv_rc2;
-            double inv_rc12 = inv_rc6 * inv_rc6;
-            VSHIFT = 4.0 * EPSILON * (sigma_12 * inv_rc12 - sigma_6 * inv_rc6);
-        }
-
-        // Low cutoff in order to avoid computation error
-        if (r2 < 1e-6)
-        {
-            r2 = 1e-6;
-        }
-
-        double inv_r2 = 1. / r2;
-        double inv_r6 = inv_r2 * inv_r2 * inv_r2;
-        double inv_r12 = inv_r6 * inv_r6;
-
-        double V_Lennar_Jones = 4.0 * EPSILON * (sigma_12 * inv_r12 - sigma_6 * inv_r6);
-
-        energy_i += V_Lennar_Jones - VSHIFT;
-    }
-
-    return energy_i;
-}
-
-double pb_verlet_compute_lennar_jones_energy(const double *pos_array,
-                                             const double *charge_array,
-                                             const VerletList_t *vl,
-                                             int n_particles,
-                                             int space_dim,
-                                             double box_size)
-{
-    double energy = 0.0;
-
-    for (size_t i = 0; i < n_particles; i++)
-    {
-        energy += pb_verlet_compute_i_lennar_jones_potential(i, pos_array, charge_array, vl, n_particles, space_dim, box_size);
-    }
-
-    energy *= 0.5; // remove double counting from pb_compute_one_particle_energy
-
-    return energy;
-}
-
-// Given the system of N particle in D dimensional space compute the total interaction energy
-double pb_verlet_compute_total_energy(const double *pos_array,
-                                      const double *charge_array,
-                                      const VerletList_t *verlet_list,
-                                      int n_particles,
-                                      int space_dim,
-                                      double box_size)
-{
-    double total_energy = 0;
-    total_energy += pb_verlet_compute_lennar_jones_energy(pos_array, charge_array, verlet_list, n_particles, space_dim, box_size);
-    total_energy += ewd_total_energy(pos_array, charge_array, n_particles, box_size);
-
-    return total_energy;
-}
-
-// ------------------------------------------------------------------
 
 // Initialize positions in a cubic lattice
 void init_system_lattice(double *pos_array,
@@ -524,7 +264,6 @@ void init_system_lattice(double *pos_array,
                     charge_array[n_particle_placed] = (parity == 0) ? 1.0 : -1.0;
 
                     mass_array[n_particle_placed] = 1;
-
                     n_particle_placed++;
                 }
             }
@@ -596,7 +335,7 @@ double pb_metropolis_step_full_system(double old_energy, double *pos_array, cons
     }
 
     // Compute the new energy
-    double new_energy = pb_compute_total_energy(pos_array, charge_array, n_particles, space_dim, box_size);
+    double new_energy = pb_compute_total_energy(pos_array, charge_array, n_particles, space_dim, box_size, 1, 1);
     double dE = new_energy - old_energy;
 
     // Metropolis acceptance criterion
@@ -682,7 +421,7 @@ double verlet_pb_metropolis_step_one_particle(double energy,
 
         int i = perm[p];
 
-        double old_energy = pb_verlet_compute_i_lennar_jones_potential(i, pos_array, charge_array, vl, n_particles, space_dim, box_size);
+        double old_energy = pb_verlet_compute_i_lennar_jones_potential(i, pos_array, charge_array, vl, n_particles, space_dim, box_size, 1, 1);
         old_energy += ewd_verlet_i_short_energy(i, pos_array, charge_array, vl, n_particles, box_size);
         // old_energy += ewd_long_energy(pos_array, charge_array, n_particles, box_size);
 
@@ -695,7 +434,7 @@ double verlet_pb_metropolis_step_one_particle(double energy,
             steps_save[j] = dj;
         }
 
-        double new_energy = pb_verlet_compute_i_lennar_jones_potential(i, pos_array, charge_array, vl, n_particles, space_dim, box_size);
+        double new_energy = pb_verlet_compute_i_lennar_jones_potential(i, pos_array, charge_array, vl, n_particles, space_dim, box_size, 1, 1);
         new_energy += ewd_verlet_i_short_energy(i, pos_array, charge_array, vl, n_particles, box_size);
         // new_energy += ewd_long_energy(pos_array, charge_array, n_particles, box_size);
 
@@ -874,14 +613,18 @@ int main(int argc, char const *argv[])
     if (verlet_list == NULL)
         exit(EXIT_FAILURE);
 
+    // Build verlet list
     verlet_pb_build_list(pos_array, old_pos_array, verlet_list, n_particles, space_dimension, box_size, r_cut, skin);
 
-    optimizeParameter(1, box_size, charge_array, n_particles);
+    // Optimize Ewald Summation Parameters
+    optimizeParameter(1e-2, box_size, charge_array, n_particles);
+
+    // Initialization of S(K) vector in the starting position
     ewd_init_S_K(pos_array, charge_array, n_particles, box_size);
 
     if (!restart_from_checkpoint)
     {
-        energy = pb_verlet_compute_total_energy(pos_array, charge_array, verlet_list, n_particles, space_dimension, box_size);
+        energy = pb_verlet_compute_total_energy(pos_array, charge_array, verlet_list, n_particles, space_dimension, box_size, 1, 1);
     }
 
     // Print a lot of informations about the simulation in order to spot possible errors at the start of simulation
@@ -904,8 +647,6 @@ int main(int argc, char const *argv[])
         goto FREE_SECTION;
         break;
     }
-
-    //-------------------------------------------------------------------------------------------------
 
 INCREASE_TEMPERATURE_SIMULATION:
 
@@ -1142,7 +883,7 @@ void print_simulation_information(const int n_particles,
 
     printf(" Start energy      : %.6e\n", energy);
 
-    double no_verlet_energy = pb_compute_total_energy(pos_array, charge_array, n_particles, space_dimension, box_size);
+    double no_verlet_energy = pb_compute_total_energy(pos_array, charge_array, n_particles, space_dimension, box_size, 1, 1);
     printf(" Relative error    : %.6e\n",
            fabs(energy - no_verlet_energy) / fabs(energy));
     assert(fabs(energy - no_verlet_energy) / fabs(energy) < 1e-3);

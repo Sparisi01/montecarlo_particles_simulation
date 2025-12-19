@@ -278,7 +278,7 @@ double ewd_short_energy(const double *pos_array, const double *charge_array, int
  *
  * @note requires a right initialized VerletList vl.
  */
-double ewd_verlet_short_energy(const double *pos_array, const double *charge_array, VerletList_t *vl, int n_particles, double box_size)
+double ewd_verlet_short_energy(const double *pos_array, const double *charge_array, const VerletList_t *vl, int n_particles, double box_size)
 {
     double real_space_energy = 0;
 
