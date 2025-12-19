@@ -36,13 +36,13 @@ int main(void)
     optimizeParameter(1e-4, box_size, charge, n_particles);
 
     /* ------------------ reference energy ------------------ */
-    double E0 = ewd_reciprocal_space_coulomb_energy(
+    double E0 = ewd_long_energy(
         pos, charge, n_particles, box_size);
 
     printf("\nE0 = %.15e\n", E0);
 
     /* ------------------ init S_k on OLD config ------------------ */
-    init_Sk(pos, charge, n_particles, box_size);
+    ewd_init_S_K(pos, charge, n_particles, box_size);
 
     /* ------------------ multiple random moves ------------------ */
     for (int step = 0; step < 20; step++)
@@ -60,13 +60,13 @@ int main(void)
         pos_new[3 * i + 2] += dz;
 
         /* --- brute-force delta --- */
-        double E1 = ewd_reciprocal_space_coulomb_energy(
+        double E1 = ewd_long_energy(
             pos_new, charge, n_particles, box_size);
 
         double dE_brute = E1 - E0;
 
         /* --- incremental delta --- */
-        double dE_inc = ewd_delta_reciprocal_energy(
+        double dE_inc = ewd_delta_long_energy(
             i, pos_new, pos, charge, box_size);
 
         double err = fabs(dE_brute - dE_inc);
@@ -81,7 +81,7 @@ int main(void)
         }
 
         /* --- accept move, update everything --- */
-        updateS_k(i, pos_new, pos, charge, box_size);
+        ewd_update_S_K(i, pos_new, pos, charge, box_size);
         memcpy(pos, pos_new, total_size * sizeof(double));
         E0 = E1;
     }

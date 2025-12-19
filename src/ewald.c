@@ -1,3 +1,19 @@
+/**
+ * @file ewald.c
+ * @brief framework to compute coulomb like energy in a 3D periodic boundary condition eviroment.
+ * Both with and without verlet list implementations are given.
+ *
+ * The following files are required:
+ * "constants.c"
+ * "periodic_boundaries.c"
+ * "verlet_list.c"
+ *
+ * @cite TODO:
+ *
+ * @author Parisi Simone
+ * @date 17 December 2025
+ */
+
 #ifndef EWALD_H
 #define EWALD_H
 
@@ -13,27 +29,37 @@
 #include "verlet_list.c"
 
 #define EWD_EPSILON 1e-8
-#define EWD_PRECISION 1e-1
 
-static double reciprocal_range;
-static double real_cutoff;
-static double alpha;
-static int optimized = 0;
+static double RECIPROCAL_RANGE;
+static double REAL_CUTOFF;
+static double ALPHA;
+static int OPTIMIZED = 0;
 
-static double errorsDifference(double error, double s, double Q, double cell_length, double alpha)
+static double complex *S_K = NULL;
+
+/**
+ * @brief The following three functions perform an optimization of Ewald parameters given
+ *
+ * - ABSOLUTE error on the energy
+ * - box_size
+ * - charge_array
+ * - n_particles
+ *
+ * these optimized parameters, used in combination with verlet list, bring the complexity
+ * of one ewd_total_energy from O(N) to O(N^3/2).
+ *
+ * TODO: cite the paper for this part
+ */
+
+static double errorsDifference(double error, double s, double Q2, double cell_length)
 {
-    return exp(-(s * s)) / (pow(s, 3. / 2)) * Q * sqrt((2 + PI) / (2 * PI * alpha * pow(cell_length, 3))) - error;
+    return exp(-(s * s)) / (pow(s, 3. / 2)) * Q2 * sqrt((2 + PI) / (2 * PI * ALPHA * pow(cell_length, 3))) - error;
 };
 
-// Time constants
-#define TAU_S 3.6
-#define TAU_L 1.0
-#define TAU_RAPP (TAU_S / TAU_L)
-
-static double findSbybisection(double a, double b, double error, double Q, double cell_length, double alpha, double precision)
+static double findSbybisection(double a, double b, double error, double Q2, double cell_length, double precision)
 {
-    double max = errorsDifference(error, a, Q, cell_length, alpha);
-    double min = errorsDifference(error, b, Q, cell_length, alpha);
+    double max = errorsDifference(error, a, Q2, cell_length);
+    double min = errorsDifference(error, b, Q2, cell_length);
 
     if (!(max > 0 && min < 0))
     {
@@ -44,7 +70,7 @@ static double findSbybisection(double a, double b, double error, double Q, doubl
     while (!root_find)
     {
         c = (a + b) / 2;
-        double mid_value = errorsDifference(error, c, Q, cell_length, alpha);
+        double mid_value = errorsDifference(error, c, Q2, cell_length);
         if (fabs(mid_value) < precision)
         {
             root_find = 1;
@@ -57,14 +83,12 @@ static double findSbybisection(double a, double b, double error, double Q, doubl
                 a = c;
         }
     }
-
-    // printf("ROOT FOUND: %.5E\n", c);
     return c;
 }
 
 void optimizeParameter(double error, double box_size, const double *charge_array, int n_particles)
 {
-    optimized = 1;
+    OPTIMIZED = 1;
 
     double Q2 = 0;
     for (size_t i = 0; i < n_particles; i++)
@@ -72,26 +96,32 @@ void optimizeParameter(double error, double box_size, const double *charge_array
         Q2 += charge_array[i] * charge_array[i];
     }
 
-    alpha = pow((TAU_RAPP * pow(PI, 3) / pow(box_size, 6) * n_particles), 1. / 6);
+    // These 3 parameters actually depends on the machine you are running these, but the result for ALPHA is not hightly sensible on TAU_RAPP
+    const double TAU_S = 3.6; // Time needed to perform one short range energy evaluation (per particle)
+    const double TAU_L = 1.0; // Time needed to perform one long range energy evaluation (per particle)
+    const double TAU_RAPP = (TAU_S / TAU_L);
 
-    double s = findSbybisection(1e-3, 1e3, error, Q2, box_size, alpha, 1e-10);
-    real_cutoff = s / alpha;
+    ALPHA = pow((TAU_RAPP * pow(PI, 3) / pow(box_size, 6) * n_particles), 1. / 6);
 
-    double kc = 2 * s * alpha;
-    reciprocal_range = ceil(kc / (2 * PI / box_size));
+    double s = findSbybisection(1e-3, 1e3, error, Q2, box_size, 1e-10);
+    REAL_CUTOFF = s / ALPHA;
 
-    printf("OPTIMIZED PARAMETERS: ALPHA = %.5E, R_C = %.5E, N_C_K = %.5E\n", alpha, real_cutoff, reciprocal_range);
+    double kc = 2 * s * ALPHA;
+    RECIPROCAL_RANGE = ceil(kc / (2 * PI / box_size));
 
-    if (real_cutoff > box_size / 2)
+    printf("OPTIMIZED PARAMETERS: ALPHA = %.5E, R_C = %.5E, N_C_K = %.5E\n", ALPHA, REAL_CUTOFF, RECIPROCAL_RANGE);
+
+    if (REAL_CUTOFF > box_size / 2)
     {
-        printf("WARNING: Cutoff to big for first image convention\n");
+        printf("Warning: REAL_CUTOFF is grater than box_size/2. \"ewd_verlet_i_short_energy\" assumes REAL_CUTOFF < box_size/2 for first image convention.\n");
+        printf("Try to increase the parameter \"error\" and optimize again or set ALPHA, REAL_CUTOFF and RECIPROCAL_RANGE by hand.");
     }
 }
 
-// Simple parameter oprimization
+// Much simple parameter oprimization
 static inline void ewd_alpha_by_precision(double precision)
 {
-    alpha = sqrt(-log(precision));
+    ALPHA = sqrt(-log(precision));
 }
 
 /**
@@ -102,20 +132,6 @@ static inline void ewd_alpha_by_precision(double precision)
  * distribution in the system. The self-energy is computed by summing the squares of
  * the charges of all particles, applying the screening parameter `alpha`, and normalizing
  * by a factor of `1 / √π`.
- *
- * This function is typically used in the context of Ewald summation to handle the
- * self-interaction term. In the final energy calculation, this term is usually
- * excluded or adjusted to avoid double-counting.
- *
- * @param charge_array  Array of particle charges
- * @param n_particles   Total number of particles in the system
- * @param alpha         Screening parameter used in the Ewald summation
- *
- * @return The self-energy of the system, adjusted by the parameter `alpha` and normalized
- *         by `1 / √π`.
- *
- * @note The self-energy term is typically subtracted from the total energy to avoid
- *       double-counting in the pairwise interaction calculation.
  */
 double ewd_self_energy(const double *charge_array, int n_particles)
 {
@@ -124,7 +140,7 @@ double ewd_self_energy(const double *charge_array, int n_particles)
     {
         sum += charge_array[i] * charge_array[i];
     }
-    return sum * alpha / SQRT_PI;
+    return sum * ALPHA / SQRT_PI;
 }
 
 /**
@@ -136,73 +152,68 @@ double ewd_self_energy(const double *charge_array, int n_particles)
  * long-range interactions, and the Coulomb potential is screened by the complementary
  * error function (`erfc`) with a decay parameter `alpha`.
  *
- * @param pos_array     Array of particle positions (flattened, 3 values per particle)
- * @param charge_array  Array of particle charges
- * @param n_particles   Total number of particles in the system
- * @param box_size      Size of the periodic simulation box (assumed cubic)
- * @param alpha         Screening parameter used in the real-space Coulomb potential
- *
- * @return The real-space Coulomb energy of the system, including interactions
- *         between particles within the cutoff distance, and screened by `alpha`.
- *
- * @warning If `_CUTOFF` parameter is invalid (<= 0), the function
- *          will terminate with an error message.
+ * @note Complexity O(N)
  */
-double ewd_i_real_space_coulomb_energy(int i, const double *pos_array, const double *charge_array, int n_particles, double box_size)
+double ewd_i_short_energy(int i, const double *pos_array, const double *charge_array, int n_particles, double box_size)
 {
-    const int _R_RANGE_EWALD = 0; // Set to 0 first image convention
+
+    if (REAL_CUTOFF > box_size / 2)
+    {
+        printf("Warning: REAL_CUTOFF is grater than box_size/2. \"ewd_verlet_i_short_energy\" assumes REAL_CUTOFF < box_size/2 for first image convention.\n");
+    }
 
     double real_space_i_energy = 0;
 
     for (size_t j = 0; j < n_particles; j++)
     {
-        for (int r_x = -_R_RANGE_EWALD; r_x <= _R_RANGE_EWALD; r_x++)
+
+        // Exclude self particle in cell (0,0,0)
+        if (i == j)
+            continue;
+
+        double r_ij_x = pos_array[c(i, 0)] - pos_array[c(j, 0)];
+        double r_ij_y = pos_array[c(i, 1)] - pos_array[c(j, 1)];
+        double r_ij_z = pos_array[c(i, 2)] - pos_array[c(j, 2)];
+
+        // First image convention
+        r_ij_x = pb_minimum_image(r_ij_x, box_size);
+        r_ij_y = pb_minimum_image(r_ij_y, box_size);
+        r_ij_z = pb_minimum_image(r_ij_z, box_size);
+
+        const double r_ij_mod2 = r_ij_x * r_ij_x + r_ij_y * r_ij_y + r_ij_z * r_ij_z;
+
+        // In first image convention _CUTOFF must be less than L/2
+        if (r_ij_mod2 > REAL_CUTOFF * REAL_CUTOFF)
+            continue;
+
+        if (r_ij_mod2 < EWD_EPSILON)
         {
-            for (int r_y = -_R_RANGE_EWALD; r_y <= _R_RANGE_EWALD; r_y++)
-            {
-                for (int r_z = -_R_RANGE_EWALD; r_z <= _R_RANGE_EWALD; r_z++)
-                {
-                    // Exclude self particle in cell (0,0,0)
-                    if (r_x == 0 && r_y == 0 && r_z == 0 && i == j)
-                        continue;
-
-                    double r_ij_x = pos_array[c(i, 0)] - pos_array[c(j, 0)];
-                    double r_ij_y = pos_array[c(i, 1)] - pos_array[c(j, 1)];
-                    double r_ij_z = pos_array[c(i, 2)] - pos_array[c(j, 2)];
-
-                    // First image convention
-                    r_ij_x = pb_minimum_image(r_ij_x, box_size) + r_x * box_size;
-                    r_ij_y = pb_minimum_image(r_ij_y, box_size) + r_y * box_size;
-                    r_ij_z = pb_minimum_image(r_ij_z, box_size) + r_z * box_size;
-
-                    double r_ij_mod2 = r_ij_x * r_ij_x + r_ij_y * r_ij_y + r_ij_z * r_ij_z;
-
-                    // In first image convention _CUTOFF must be less than L/2
-                    if (r_ij_mod2 > real_cutoff * real_cutoff)
-                        continue;
-                    if (r_ij_mod2 < EWD_EPSILON)
-                        goto PARTICLE_OVERLAP_ERROR;
-
-                    // Avoid Sqrt if not needed
-                    double r_ij_mod = sqrt(r_ij_mod2);
-
-                    real_space_i_energy += (charge_array[i] * charge_array[j]) * erfc(alpha * r_ij_mod) / r_ij_mod;
-                }
-            }
+            printf("WARNING: 2 particles found below EWD_EPSILON distance, possible arithmetic error in energy evaluation");
         }
+
+        const double r_ij_mod = sqrt(r_ij_mod2);
+
+        real_space_i_energy += (charge_array[i] * charge_array[j]) * erfc(ALPHA * r_ij_mod) / r_ij_mod;
     }
 
     return real_space_i_energy;
-
-// Error handling
-PARTICLE_OVERLAP_ERROR:
-    printf("ERROR: particle overlap");
-    exit(EXIT_FAILURE);
 }
 
-double ewd_verlet_i_real_space_coulomb_energy(int i, const double *pos_array, const double *charge_array, const VerletList_t *vl, int n_particles, double box_size)
+/**
+ * @brief Same behavior as "ewd_i_short_energy" but instead of looping over all the particles a VerletList is used.
+ * The complexity is reduced from O(N) to O(1), where the constant depend on the mean number of neightbours stored in the verlet list
+ * for the i particle.
+ *
+ * @note Requires a right initialized VerletList vl.
+ * @note Complexity O(1)
+ */
+double ewd_verlet_i_short_energy(int i, const double *pos_array, const double *charge_array, const VerletList_t *vl, int n_particles, double box_size)
 {
-    const int _R_RANGE_EWALD = 0; // Set to 0 first image convention
+
+    if (REAL_CUTOFF > box_size / 2)
+    {
+        printf("Warning: REAL_CUTOFF is grater than box_size/2. \"ewd_verlet_i_short_energy\" assumes REAL_CUTOFF < box_size/2 for first image convention.\n");
+    }
 
     double real_space_i_energy = 0;
 
@@ -210,59 +221,70 @@ double ewd_verlet_i_real_space_coulomb_energy(int i, const double *pos_array, co
     {
         int j = vl[i].list[v];
 
-        for (int r_x = -_R_RANGE_EWALD; r_x <= _R_RANGE_EWALD; r_x++)
+        // Exclude self particle in cell (0,0,0)
+        if (i == j)
+            continue;
+
+        double r_ij_x = pos_array[c(i, 0)] - pos_array[c(j, 0)];
+        double r_ij_y = pos_array[c(i, 1)] - pos_array[c(j, 1)];
+        double r_ij_z = pos_array[c(i, 2)] - pos_array[c(j, 2)];
+
+        // First image convention
+        r_ij_x = pb_minimum_image(r_ij_x, box_size);
+        r_ij_y = pb_minimum_image(r_ij_y, box_size);
+        r_ij_z = pb_minimum_image(r_ij_z, box_size);
+
+        double r_ij_mod2 = r_ij_x * r_ij_x + r_ij_y * r_ij_y + r_ij_z * r_ij_z;
+
+        // In first image convention _CUTOFF must be less than L/2
+        if (r_ij_mod2 > REAL_CUTOFF * REAL_CUTOFF)
+            continue;
+
+        if (r_ij_mod2 < EWD_EPSILON)
         {
-            for (int r_y = -_R_RANGE_EWALD; r_y <= _R_RANGE_EWALD; r_y++)
-            {
-                for (int r_z = -_R_RANGE_EWALD; r_z <= _R_RANGE_EWALD; r_z++)
-                {
-                    // Exclude self particle in cell (0,0,0)
-                    if (r_x == 0 && r_y == 0 && r_z == 0 && i == j)
-                        continue;
-
-                    double r_ij_x = pos_array[c(i, 0)] - pos_array[c(j, 0)];
-                    double r_ij_y = pos_array[c(i, 1)] - pos_array[c(j, 1)];
-                    double r_ij_z = pos_array[c(i, 2)] - pos_array[c(j, 2)];
-
-                    // First image convention
-                    r_ij_x = pb_minimum_image(r_ij_x, box_size) + r_x * box_size;
-                    r_ij_y = pb_minimum_image(r_ij_y, box_size) + r_y * box_size;
-                    r_ij_z = pb_minimum_image(r_ij_z, box_size) + r_z * box_size;
-
-                    double r_ij_mod2 = r_ij_x * r_ij_x + r_ij_y * r_ij_y + r_ij_z * r_ij_z;
-
-                    // In first image convention _CUTOFF must be less than L/2
-                    if (r_ij_mod2 > real_cutoff * real_cutoff)
-                        continue;
-                    if (r_ij_mod2 < EWD_EPSILON)
-                        goto PARTICLE_OVERLAP_ERROR;
-
-                    // Avoid Sqrt if not needed
-                    double r_ij_mod = sqrt(r_ij_mod2);
-
-                    real_space_i_energy += (charge_array[i] * charge_array[j]) * erfc(alpha * r_ij_mod) / r_ij_mod;
-                }
-            }
+            printf("Warning: REAL_CUTOFF is grater than box_size/2. \"ewd_verlet_i_short_energy\" assumes REAL_CUTOFF < box_size/2 for first image convention.\n");
         }
+
+        double r_ij_mod = sqrt(r_ij_mod2);
+
+        real_space_i_energy += (charge_array[i] * charge_array[j]) * erfc(ALPHA * r_ij_mod) / r_ij_mod;
     }
 
     return real_space_i_energy;
-
-// Error handling
-PARTICLE_OVERLAP_ERROR:
-    printf("ERROR: particle overlap");
-    exit(EXIT_FAILURE);
 }
 
-// NOTE - I preferred to separate the energy into i-energies for a possible future implementation of verlet list
-//  in that case instead of passing pos_array one can just pass the verlet array associated with particle i
-double ewd_real_space_coulomb_energy(const double *pos_array, const double *charge_array, int n_particles, double box_size)
+/**
+ * @brief Compute the total real-space Coulomb looping over "ewd_i_short_energy". See that for more informations.
+ *
+ * @note Complexity of N*O(N) = O(N^2)
+ */
+double ewd_short_energy(const double *pos_array, const double *charge_array, int n_particles, double box_size)
 {
     double real_space_energy = 0;
 
     for (size_t i = 0; i < n_particles; i++)
     {
-        real_space_energy += ewd_i_real_space_coulomb_energy(i, pos_array, charge_array, n_particles, box_size);
+        real_space_energy += ewd_i_short_energy(i, pos_array, charge_array, n_particles, box_size);
+    }
+
+    // Divide by 2 because in this implementation I am double counting
+    return real_space_energy * 0.5;
+}
+
+/**
+ * @brief Compute the total real-space Coulomb looping over "ewd_verlet_i_short_energy". See that for more informations.
+ *
+ * Complexity of N*O(1) = O(N)
+ *
+ * @note requires a right initialized VerletList vl.
+ */
+double ewd_verlet_short_energy(const double *pos_array, const double *charge_array, VerletList_t *vl, int n_particles, double box_size)
+{
+    double real_space_energy = 0;
+
+    for (size_t i = 0; i < n_particles; i++)
+    {
+        real_space_energy += ewd_verlet_i_short_energy(i, pos_array, charge_array, vl, n_particles, box_size);
     }
 
     // Divide by 2 because in this implementation I am double counting
@@ -275,15 +297,6 @@ double ewd_real_space_coulomb_energy(const double *pos_array, const double *char
  * This function calculates the structural factor S(k), which is the Fourier transform
  * of the charge distribution in the system, for a given reciprocal lattice vector (k = (k_x, k_y, k_z)).
  * The structural factor is used to calculate the long-range Coulomb interactions in reciprocal space in the Ewald summation.
- *
- * @param pos_array     Array of particle positions (flattened, 3 values per particle)
- * @param charge_array  Array of particle charges
- * @param n_particles   Total number of particles in the system
- * @param k_x           The x-component of the reciprocal lattice vector
- * @param k_y           The y-component of the reciprocal lattice vector
- * @param k_z           The z-component of the reciprocal lattice vector
- *
- * @return A complex number representing the structural factor S(k).
  */
 static inline double complex ewd_compute_structural_factor(const double *pos_array, const double *charge_array, int n_particles, double k_x, double k_y, double k_z)
 {
@@ -315,32 +328,23 @@ static inline double complex ewd_compute_structural_factor(const double *pos_arr
  * The Coulomb energy is calculated by summing over the structure factors for all
  * reciprocal lattice vectors within the defined range, applying the appropriate
  * screening factor, and normalizing by the system volume.
- *
- * @param pos_array     Array of particle positions (flattened, 3 values per particle)
- * @param charge_array  Array of particle charges
- * @param n_particles   Total number of particles in the system
- * @param box_size      Size of the periodic simulation box (assumed cubic)
- * @param alpha         Screening parameter used in the reciprocal-space Coulomb potential
- *
- * @return The reciprocal-space Coulomb energy of the system, including long-range
- *         interactions, screened by `alpha`.
  */
-double ewd_reciprocal_space_coulomb_energy(const double *pos_array, const double *charge_array, int n_particles, double box_size)
+double ewd_long_energy(const double *pos_array, const double *charge_array, int n_particles, double box_size)
 {
     const double base_frequency = (2 * PI / box_size);
     double sum = 0;
-    for (int k_x = -reciprocal_range; k_x <= reciprocal_range; k_x++)
+    for (int k_x = -RECIPROCAL_RANGE; k_x <= RECIPROCAL_RANGE; k_x++)
     {
-        for (int k_y = -reciprocal_range; k_y <= reciprocal_range; k_y++)
+        for (int k_y = -RECIPROCAL_RANGE; k_y <= RECIPROCAL_RANGE; k_y++)
         {
-            for (int k_z = -reciprocal_range; k_z <= reciprocal_range; k_z++)
+            for (int k_z = -RECIPROCAL_RANGE; k_z <= RECIPROCAL_RANGE; k_z++)
             {
                 // Ignore cell (0,0,0) in k-space
                 if (k_x == 0 && k_y == 0 && k_z == 0)
                     continue;
 
                 // K sphere
-                if (k_x * k_x + k_y * k_y + k_z * k_z > reciprocal_range * reciprocal_range)
+                if (k_x * k_x + k_y * k_y + k_z * k_z > RECIPROCAL_RANGE * RECIPROCAL_RANGE)
                     continue;
 
                 double k_x_f = k_x * base_frequency;
@@ -349,7 +353,7 @@ double ewd_reciprocal_space_coulomb_energy(const double *pos_array, const double
 
                 double k_mod2 = k_x_f * k_x_f + k_y_f * k_y_f + k_z_f * k_z_f;
                 double complex structural_factor = ewd_compute_structural_factor(pos_array, charge_array, n_particles, k_x_f, k_y_f, k_z_f);
-                sum += (structural_factor * conj(structural_factor)) * exp(-k_mod2 / (4 * alpha * alpha)) / k_mod2;
+                sum += (structural_factor * conj(structural_factor)) * exp(-k_mod2 / (4 * ALPHA * ALPHA)) / k_mod2;
             }
         }
     }
@@ -368,30 +372,22 @@ double ewd_reciprocal_space_coulomb_energy(const double *pos_array, const double
  * are computed using Fourier space. The self-energy accounts for the interaction of each particle with its
  * own charge distribution.
  *
- * @param pos_array     Array of particle positions (flattened, 3 values per particle)
- * @param charge_array  Array of particle charges
- * @param n_particles   Total number of particles in the system
- * @param box_size      Size of the periodic simulation box (assumed cubic)
- *
- * @return The total Coulomb energy of the system, calculated as the sum of short-range interactions,
- *         long-range interactions, and self-energy (with the self-energy subtracted to avoid double-counting).
- *
+ * @note Complexity O(N^2)
  */
-double ewd_total_coulomb_energy(const double *pos_array, const double *charge_array, int n_particles, double box_size)
+double ewd_total_energy(const double *pos_array, const double *charge_array, int n_particles, double box_size)
 {
-    // double alpha = ewd_alpha_by_precision(EWD_PRECISION);
 
-    if (optimized == 0)
+    if (OPTIMIZED == 0)
     {
-        optimizeParameter(EWD_PRECISION, box_size, charge_array, n_particles);
+        printf("Warning: parameters has not been optimized\n");
     }
 
     static double self_energy = 0;
 
     // O(N^2)
-    double short_range_energy = ewd_real_space_coulomb_energy(pos_array, charge_array, n_particles, box_size);
+    double short_range_energy = ewd_short_energy(pos_array, charge_array, n_particles, box_size);
     // O(N)
-    double long_range_energy = ewd_reciprocal_space_coulomb_energy(pos_array, charge_array, n_particles, box_size);
+    double long_range_energy = ewd_long_energy(pos_array, charge_array, n_particles, box_size);
 
     // O(1)
     // If the charge of the particle does not change the self_energy is constant so it has to be computed only once,
@@ -404,38 +400,171 @@ double ewd_total_coulomb_energy(const double *pos_array, const double *charge_ar
     return (short_range_energy + long_range_energy - self_energy);
 }
 
-static double complex *S_k = NULL;
-static int Nk_global;
-
-static void fillS_k(const double *pos_array, const double *charge_array, int n_particles, double box_size)
+/**
+ * @brief Compute the total Coulomb energy like in "ewd_total_energy" but using a VerletList to reduce complexity.
+ * Look at "ewd_total_energy" description for more informations.
+ *
+ * @note Complexity O(N)
+ */
+double ewd_verlet_total_energy(const double *pos_array, const double *charge_array, const VerletList_t *vl, int n_particles, double box_size)
 {
+
+    if (OPTIMIZED == 0)
+    {
+        printf("Warning: parameters has not been optimized\n");
+    }
+
+    static double self_energy = 0;
+
+    // O(N)
+    double short_range_energy = ewd_verlet_short_energy(pos_array, charge_array, vl, n_particles, box_size);
+    // O(N)
+    double long_range_energy = ewd_long_energy(pos_array, charge_array, n_particles, box_size);
+
+    // O(1)
+    // If the charge of the particle does not change the self_energy is constant so it has to be computed only once,
+    // unless all particles are charge neutral self energy is always greater than 0
+    if (self_energy == 0)
+    {
+        self_energy = ewd_self_energy(charge_array, n_particles);
+    }
+
+    return (short_range_energy + long_range_energy - self_energy);
+}
+
+/**
+ * @brief Compute the difference in the long energy given old_pos_array and new_pos_array where ONLY the i particle has moved
+ * from r_i -> r_i'.
+ *
+ * The result of this function is exaclty the same as computing
+ *
+ * dE_long = ewd_long_energy(new_pos_array,...) - ewd_long_energy(old_pos_array,..)
+ *
+ * but it is faster since is does not compute the structural factor S(k), so it misses the loop over N bringing
+ * the complexity from O(N) to O(1). S(K) is cmputed only once at the start of the simulation using the start postion array
+ * and the function "ewd_init_S_K", then S_K has to be updated by hand using "ewd_update_S_K".
+ * In the MC case we will update S(k) only if the step is accepted.
+ * The update for S_K is also O(1).
+ *
+ * @note Complexity O(1)
+ */
+double ewd_delta_long_energy(int i, const double *new_pos_array, const double *old_pos_array, const double *charge_array, double box_size)
+{
+
+    const int NK = 2 * RECIPROCAL_RANGE + 1;
     const double base_frequency = (2 * PI / box_size);
 
-    for (int k_x = -reciprocal_range; k_x <= reciprocal_range; k_x++)
+    double delta_E = 0;
+
+    for (int k_x = -RECIPROCAL_RANGE; k_x <= RECIPROCAL_RANGE; k_x++)
     {
-        for (int k_y = -reciprocal_range; k_y <= reciprocal_range; k_y++)
+        for (int k_y = -RECIPROCAL_RANGE; k_y <= RECIPROCAL_RANGE; k_y++)
         {
-            for (int k_z = -reciprocal_range; k_z <= reciprocal_range; k_z++)
+            for (int k_z = -RECIPROCAL_RANGE; k_z <= RECIPROCAL_RANGE; k_z++)
             {
                 // Ignore cell (0,0,0) in k-space
                 if (k_x == 0 && k_y == 0 && k_z == 0)
                     continue;
 
                 // K sphere
-                if (k_x * k_x + k_y * k_y + k_z * k_z > reciprocal_range * reciprocal_range)
+                if (k_x * k_x + k_y * k_y + k_z * k_z > RECIPROCAL_RANGE * RECIPROCAL_RANGE)
                     continue;
 
-                double k_x_f = k_x * base_frequency;
-                double k_y_f = k_y * base_frequency;
-                double k_z_f = k_z * base_frequency;
+                const double k_x_f = k_x * base_frequency;
+                const double k_y_f = k_y * base_frequency;
+                const double k_z_f = k_z * base_frequency;
 
-                int idx = (k_x + reciprocal_range) * Nk_global * Nk_global + (k_y + reciprocal_range) * Nk_global + (k_z + reciprocal_range);
+                const double phase_old = k_x_f * old_pos_array[c(i, 0)] + k_y_f * old_pos_array[c(i, 1)] + k_z_f * old_pos_array[c(i, 2)];
+                const double phase_new = k_x_f * new_pos_array[c(i, 0)] + k_y_f * new_pos_array[c(i, 1)] + k_z_f * new_pos_array[c(i, 2)];
+
+                const int idx = (k_x + RECIPROCAL_RANGE) * NK * NK + (k_y + RECIPROCAL_RANGE) * NK + (k_z + RECIPROCAL_RANGE);
+
+                const double complex dS_i = charge_array[i] * (cexp(I * phase_new) - cexp(I * phase_old));
+
+                const double k2 = k_x_f * k_x_f + k_y_f * k_y_f + k_z_f * k_z_f;
+
+                const double prefactor_k = (2 * PI / (box_size * box_size * box_size)) * exp(-k2 / (4 * ALPHA * ALPHA)) / k2;
+
+                delta_E += prefactor_k * (2 * creal(conj(S_K[idx]) * dS_i) + creal(dS_i * conj(dS_i)));
+            }
+        }
+    }
+    return delta_E;
+}
+
+/**
+ * @brief Update S_K given old_pos_array and new_pos_array where ONLY the i particle has moved
+ * from r_i -> r_i'.
+ * For more information look at the "ewd_delta_long_energy" description.
+ *
+ * @note Complexity O(1)
+ */
+void ewd_update_S_K(int i, const double *new_pos_array, const double *old_pos_array, const double *charge_array, double box_size)
+{
+    const int NK = 2 * RECIPROCAL_RANGE + 1;
+    const double base_frequency = (2 * PI / box_size);
+
+    for (int k_x = -RECIPROCAL_RANGE; k_x <= RECIPROCAL_RANGE; k_x++)
+    {
+        for (int k_y = -RECIPROCAL_RANGE; k_y <= RECIPROCAL_RANGE; k_y++)
+        {
+            for (int k_z = -RECIPROCAL_RANGE; k_z <= RECIPROCAL_RANGE; k_z++)
+            {
+                if (k_x == 0 && k_y == 0 && k_z == 0)
+                    continue;
+                if (k_x * k_x + k_y * k_y + k_z * k_z > RECIPROCAL_RANGE * RECIPROCAL_RANGE)
+                    continue;
+
+                const double k_x_f = k_x * base_frequency;
+                const double k_y_f = k_y * base_frequency;
+                const double k_z_f = k_z * base_frequency;
+
+                const double phase_old = k_x_f * old_pos_array[c(i, 0)] + k_y_f * old_pos_array[c(i, 1)] + k_z_f * old_pos_array[c(i, 2)];
+                const double phase_new = k_x_f * new_pos_array[c(i, 0)] + k_y_f * new_pos_array[c(i, 1)] + k_z_f * new_pos_array[c(i, 2)];
+
+                const int idx = (k_x + RECIPROCAL_RANGE) * NK * NK + (k_y + RECIPROCAL_RANGE) * NK + (k_z + RECIPROCAL_RANGE);
+
+                const double complex dS = charge_array[i] * (cexp(I * phase_new) - cexp(I * phase_old));
+
+                S_K[idx] += dS;
+            }
+        }
+    }
+}
+
+/**
+ * @brief Used in "ewd_init_S_K", look at it's description for more inormation.
+ */
+static void ewd_fill_S_K(const double *pos_array, const double *charge_array, int n_particles, double box_size)
+{
+    const int NK = 2 * RECIPROCAL_RANGE + 1;
+    const double base_frequency = (2 * PI / box_size);
+
+    for (int k_x = -RECIPROCAL_RANGE; k_x <= RECIPROCAL_RANGE; k_x++)
+    {
+        for (int k_y = -RECIPROCAL_RANGE; k_y <= RECIPROCAL_RANGE; k_y++)
+        {
+            for (int k_z = -RECIPROCAL_RANGE; k_z <= RECIPROCAL_RANGE; k_z++)
+            {
+
+                if (k_x == 0 && k_y == 0 && k_z == 0)
+                    continue;
+
+                // K sphere of radius RECIPROCAL_RANGE in reciprocal lattice space
+                if (k_x * k_x + k_y * k_y + k_z * k_z > RECIPROCAL_RANGE * RECIPROCAL_RANGE)
+                    continue;
+
+                const double k_x_f = k_x * base_frequency;
+                const double k_y_f = k_y * base_frequency;
+                const double k_z_f = k_z * base_frequency;
+
+                const int idx = (k_x + RECIPROCAL_RANGE) * NK * NK + (k_y + RECIPROCAL_RANGE) * NK + (k_z + RECIPROCAL_RANGE);
 
                 double complex Sk = 0.0 + 0.0 * I;
 
                 for (int i = 0; i < n_particles; i++)
                 {
-                    double phase =
+                    const double phase =
                         k_x_f * pos_array[c(i, 0)] +
                         k_y_f * pos_array[c(i, 1)] +
                         k_z_f * pos_array[c(i, 2)];
@@ -443,95 +572,35 @@ static void fillS_k(const double *pos_array, const double *charge_array, int n_p
                     Sk += charge_array[i] * cexp(I * phase);
                 }
 
-                S_k[idx] = Sk;
+                S_K[idx] = Sk;
             }
         }
     }
 }
 
-void init_Sk(const double *pos_array, const double *charge_array, int n_particles, double box_size)
+/**
+ * @brief Precompile and store in memory every S(K).
+ * K_x assumes values in {-RECIPROCAL_RANGE, -RECIPROCAL_RANGE + 1,..., RECIPROCAL_RANGE - 1, RECIPROCAL_RANGE},
+ * same for K_and K_z. Gived that, S(K) is stored as a flattered 3D matrix of size NK^3, where NK = 2 * RECIPROCAL_RANGE + 1;
+ *
+ * To retrieve the correct index for a vector K use:
+ * idx = (k_x + RECIPROCAL_RANGE) * NK * NK + (k_y + RECIPROCAL_RANGE) * NK + (k_z + RECIPROCAL_RANGE);
+ */
+void ewd_init_S_K(const double *pos_array, const double *charge_array, int n_particles, double box_size)
 {
-    Nk_global = 2 * reciprocal_range + 1;
-    int Ntot = Nk_global * Nk_global * Nk_global;
+    const int NK = 2 * RECIPROCAL_RANGE + 1;
+    const int Ntot = NK * NK * NK;
 
-    S_k = calloc(Ntot, sizeof(double complex));
-    if (!S_k)
+    if (S_K != NULL)
+    {
+        free(S_K);
+    }
+
+    S_K = calloc(Ntot, sizeof(double complex));
+    if (!S_K)
         exit(EXIT_FAILURE);
 
-    fillS_k(pos_array, charge_array, n_particles, box_size);
-}
-
-double ewd_delta_reciprocal_energy(int i, const double *new_pos_array, const double *old_pos_array, const double *charge_array, double box_size)
-{
-
-    const double base_frequency = (2 * PI / box_size);
-
-    double delta_E = 0;
-
-    for (int k_x = -reciprocal_range; k_x <= reciprocal_range; k_x++)
-    {
-        for (int k_y = -reciprocal_range; k_y <= reciprocal_range; k_y++)
-        {
-            for (int k_z = -reciprocal_range; k_z <= reciprocal_range; k_z++)
-            {
-                // Ignore cell (0,0,0) in k-space
-                if (k_x == 0 && k_y == 0 && k_z == 0)
-                    continue;
-
-                // K sphere
-                if (k_x * k_x + k_y * k_y + k_z * k_z > reciprocal_range * reciprocal_range)
-                    continue;
-
-                double k_x_f = k_x * base_frequency;
-                double k_y_f = k_y * base_frequency;
-                double k_z_f = k_z * base_frequency;
-
-                double phase_old = k_x_f * old_pos_array[c(i, 0)] + k_y_f * old_pos_array[c(i, 1)] + k_z_f * old_pos_array[c(i, 2)];
-                double phase_new = k_x_f * new_pos_array[c(i, 0)] + k_y_f * new_pos_array[c(i, 1)] + k_z_f * new_pos_array[c(i, 2)];
-
-                int idx = (k_x + reciprocal_range) * Nk_global * Nk_global + (k_y + reciprocal_range) * Nk_global + (k_z + reciprocal_range);
-
-                double complex dS_i = charge_array[i] * (cexp(I * phase_new) - cexp(I * phase_old));
-
-                double k2 = k_x_f * k_x_f + k_y_f * k_y_f + k_z_f * k_z_f;
-
-                double prefactor_k = (2 * PI / (box_size * box_size * box_size)) * exp(-k2 / (4 * alpha * alpha)) / k2;
-
-                delta_E += prefactor_k * (2 * creal(conj(S_k[idx]) * dS_i) + creal(dS_i * conj(dS_i)));
-            }
-        }
-    }
-    return delta_E;
-}
-
-void updateS_k(int i, const double *new_pos_array, const double *old_pos_array, const double *charge_array, double box_size)
-{
-    const double base_frequency = (2 * PI / box_size);
-    for (int k_x = -reciprocal_range; k_x <= reciprocal_range; k_x++)
-    {
-        for (int k_y = -reciprocal_range; k_y <= reciprocal_range; k_y++)
-        {
-            for (int k_z = -reciprocal_range; k_z <= reciprocal_range; k_z++)
-            {
-                if (k_x == 0 && k_y == 0 && k_z == 0)
-                    continue;
-                if (k_x * k_x + k_y * k_y + k_z * k_z > reciprocal_range * reciprocal_range)
-                    continue;
-
-                double k_x_f = k_x * base_frequency;
-                double k_y_f = k_y * base_frequency;
-                double k_z_f = k_z * base_frequency;
-
-                double phase_old = k_x_f * old_pos_array[c(i, 0)] + k_y_f * old_pos_array[c(i, 1)] + k_z_f * old_pos_array[c(i, 2)];
-                double phase_new = k_x_f * new_pos_array[c(i, 0)] + k_y_f * new_pos_array[c(i, 1)] + k_z_f * new_pos_array[c(i, 2)];
-
-                int idx = (k_x + reciprocal_range) * Nk_global * Nk_global + (k_y + reciprocal_range) * Nk_global + (k_z + reciprocal_range);
-
-                double complex dS = charge_array[i] * (cexp(I * phase_new) - cexp(I * phase_old));
-                S_k[idx] += dS;
-            }
-        }
-    }
+    ewd_fill_S_K(pos_array, charge_array, n_particles, box_size);
 }
 
 #endif

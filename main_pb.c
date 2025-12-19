@@ -308,7 +308,7 @@ double pb_compute_total_energy(const double *pos_array,
 {
     double total_energy = 0;
     total_energy += pb_compute_lennar_jones_energy(pos_array, charge_array, n_particles, space_dim, box_size);
-    total_energy += ewd_total_coulomb_energy(pos_array, charge_array, n_particles, box_size);
+    total_energy += ewd_total_energy(pos_array, charge_array, n_particles, box_size);
 
     return total_energy;
 }
@@ -418,7 +418,7 @@ double pb_verlet_compute_total_energy(const double *pos_array,
 {
     double total_energy = 0;
     total_energy += pb_verlet_compute_lennar_jones_energy(pos_array, charge_array, verlet_list, n_particles, space_dim, box_size);
-    total_energy += ewd_total_coulomb_energy(pos_array, charge_array, n_particles, box_size);
+    total_energy += ewd_total_energy(pos_array, charge_array, n_particles, box_size);
 
     return total_energy;
 }
@@ -653,8 +653,8 @@ double verlet_pb_metropolis_step_one_particle(double energy,
         int i = perm[p];
 
         double old_energy = pb_verlet_compute_i_lennar_jones_potential(i, pos_array, charge_array, vl, n_particles, space_dim, box_size);
-        old_energy += ewd_verlet_i_real_space_coulomb_energy(i, pos_array, charge_array, vl, n_particles, box_size);
-        // old_energy += ewd_reciprocal_space_coulomb_energy(pos_array, charge_array, n_particles, box_size);
+        old_energy += ewd_verlet_i_short_energy(i, pos_array, charge_array, vl, n_particles, box_size);
+        // old_energy += ewd_long_energy(pos_array, charge_array, n_particles, box_size);
 
         // Random step in j direction between -delta and + delta
         for (int j = 0; j < space_dim; j++)
@@ -666,10 +666,10 @@ double verlet_pb_metropolis_step_one_particle(double energy,
         }
 
         double new_energy = pb_verlet_compute_i_lennar_jones_potential(i, pos_array, charge_array, vl, n_particles, space_dim, box_size);
-        new_energy += ewd_verlet_i_real_space_coulomb_energy(i, pos_array, charge_array, vl, n_particles, box_size);
-        // new_energy += ewd_reciprocal_space_coulomb_energy(pos_array, charge_array, n_particles, box_size);
+        new_energy += ewd_verlet_i_short_energy(i, pos_array, charge_array, vl, n_particles, box_size);
+        // new_energy += ewd_long_energy(pos_array, charge_array, n_particles, box_size);
 
-        double dE_ewald = ewd_delta_reciprocal_energy(i, pos_array, old_position, charge_array, box_size);
+        double dE_ewald = ewd_delta_long_energy(i, pos_array, old_position, charge_array, box_size);
 
         double dE = new_energy - old_energy + dE_ewald;
 
@@ -692,7 +692,7 @@ double verlet_pb_metropolis_step_one_particle(double energy,
 
             energy += dE;
 
-            updateS_k(i, pos_array, old_position, charge_array, box_size);
+            ewd_update_S_K(i, pos_array, old_position, charge_array, box_size);
 
             for (int j = 0; j < space_dim; j++)
             {
@@ -847,7 +847,7 @@ int main(int argc, char const *argv[])
     verlet_pb_build_list(pos_array, old_pos_array, verlet_list, n_particles, space_dimension, box_size, r_cut, skin);
 
     optimizeParameter(1, box_size, charge_array, n_particles);
-    init_Sk(pos_array, charge_array, n_particles, box_size);
+    ewd_init_S_K(pos_array, charge_array, n_particles, box_size);
 
     if (!restart_from_checkpoint)
     {
