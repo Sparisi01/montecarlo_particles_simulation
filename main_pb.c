@@ -33,6 +33,8 @@ enum SIMULATION_TYPE
     NONE
 };
 
+const int COULOMB_INTERACTION_ON = 1;
+
 /**
  * @brief Compute the radial distribution storing the counting in a bin array "bins_array" of bin size "bin_interval"
  */
@@ -108,31 +110,7 @@ double pb_compute_total_energy(const double *pos_array,
     double total_energy = 0;
     total_energy += pb_compute_lennar_jones_energy(pos_array, charge_array, n_particles, space_dim, box_size, epsilon, sigma);
 
-    static int coulomb_interaction_ON = 2;
-    if (coulomb_interaction_ON == 2)
-    {
-        int charges_count = 0;
-
-        for (size_t i = 0; i < n_particles; i++)
-        {
-            if (charge_array[i] != 0)
-            {
-                charges_count++;
-            }
-        }
-
-        if (charges_count >= 2)
-
-        {
-            coulomb_interaction_ON = 1;
-        }
-        else
-        {
-            coulomb_interaction_ON = 0;
-        }
-    }
-
-    if (coulomb_interaction_ON)
+    if (COULOMB_INTERACTION_ON)
     {
         if (space_dim != 3)
         {
@@ -160,30 +138,7 @@ double pb_verlet_compute_total_energy(const double *pos_array,
     double total_energy = 0;
     total_energy += pb_verlet_compute_lennar_jones_energy(pos_array, charge_array, verlet_list, n_particles, space_dim, box_size, epsilon, sigma);
 
-    static int coulomb_interaction_ON = 2;
-    if (coulomb_interaction_ON == 2)
-    {
-        int charges_count = 0;
-
-        for (size_t i = 0; i < n_particles; i++)
-        {
-            if (charge_array[i] != 0)
-            {
-                charges_count++;
-            }
-        }
-        if (charges_count >= 2)
-
-        {
-            coulomb_interaction_ON = 1;
-        }
-        else
-        {
-            coulomb_interaction_ON = 0;
-        }
-    }
-
-    if (coulomb_interaction_ON)
+    if (COULOMB_INTERACTION_ON)
     {
         if (space_dim != 3)
         {
@@ -264,6 +219,7 @@ void init_system_lattice(double *pos_array,
                     charge_array[n_particle_placed] = (parity == 0) ? 1.0 : -1.0;
 
                     mass_array[n_particle_placed] = 1;
+                    charge_array[n_particle_placed] = 0;
                     n_particle_placed++;
                 }
             }
@@ -617,7 +573,10 @@ int main(int argc, char const *argv[])
     verlet_pb_build_list(pos_array, old_pos_array, verlet_list, n_particles, space_dimension, box_size, r_cut, skin);
 
     // Optimize Ewald Summation Parameters
-    optimizeParameter(1e-2, box_size, charge_array, n_particles);
+    if (COULOMB_INTERACTION_ON)
+    {
+        optimizeParameter(1e-2, box_size, charge_array, n_particles);
+    }
 
     // Initialization of S(K) vector in the starting position
     ewd_init_S_K(pos_array, charge_array, n_particles, box_size);

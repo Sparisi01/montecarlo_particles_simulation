@@ -27,6 +27,7 @@
 #include "constants.c"
 #include "periodic_boundaries.c"
 #include "verlet_list.c"
+#include "logger.c"
 
 #define EWD_EPSILON 1e-8
 
@@ -36,6 +37,13 @@ static double ALPHA;
 static int OPTIMIZED = 0;
 
 static double complex *S_K = NULL;
+
+const char CUTOFF_WARNING_MESSAGE[] =
+    "REAL_CUTOFF exceeds box_size/2, violating the first-image convention "
+    "assumed by \"ewd_verlet_i_short_energy\". "
+    "Computed energies may be incorrect. "
+    "Consider increasing the \"error\" tolerance or manually tuning "
+    "ALPHA, REAL_CUTOFF, and RECIPROCAL_RANGE.\n";
 
 /**
  * @brief The following three functions perform an optimization of Ewald parameters given
@@ -63,7 +71,7 @@ static double findSbybisection(double a, double b, double error, double Q2, doub
 
     if (!(max > 0 && min < 0))
     {
-        printf("Max e min non rispettano parametri bisezione\n");
+        LOG_ERROR("Max e min non rispettano parametri bisezione");
     };
     double c = 0;
     int root_find = 0;
@@ -88,12 +96,22 @@ static double findSbybisection(double a, double b, double error, double Q2, doub
 
 void optimizeParameter(double error, double box_size, const double *charge_array, int n_particles)
 {
-    OPTIMIZED = 1;
 
     double Q2 = 0;
     for (size_t i = 0; i < n_particles; i++)
     {
         Q2 += charge_array[i] * charge_array[i];
+    }
+
+    if (Q2 == 0)
+    {
+        fprintf(stderr, "\033[1;31mERROR: All charges are set to 0. Optimization cannot proceed with zero charges.\n");
+        fprintf(stderr, "Possible solutions:\n");
+        fprintf(stderr, "- Disable Coulomb interaction if it's not needed.\n");
+        fprintf(stderr, "- Modify the 'charge_array' to use non-zero charge values.\n");
+        fprintf(stderr, "- Ensure the charge values are correctly initialized.\n");
+        fprintf(stderr, "Please check your input parameters and try again.\n");
+        fprintf(stderr, "\033[0m"); // Resets color to default
     }
 
     // These 3 parameters actually depends on the machine you are running these, but the result for ALPHA is not hightly sensible on TAU_RAPP
@@ -113,9 +131,10 @@ void optimizeParameter(double error, double box_size, const double *charge_array
 
     if (REAL_CUTOFF > box_size / 2)
     {
-        printf("Warning: REAL_CUTOFF is grater than box_size/2. \"ewd_verlet_i_short_energy\" assumes REAL_CUTOFF < box_size/2 for first image convention.\n");
-        printf("Try to increase the parameter \"error\" and optimize again or set ALPHA, REAL_CUTOFF and RECIPROCAL_RANGE by hand.");
+        LOG_WARNING("%s", CUTOFF_WARNING_MESSAGE);
     }
+
+    OPTIMIZED = 1;
 }
 
 // Much simple parameter oprimization
@@ -159,7 +178,7 @@ double ewd_i_short_energy(int i, const double *pos_array, const double *charge_a
 
     if (REAL_CUTOFF > box_size / 2)
     {
-        printf("Warning: REAL_CUTOFF is grater than box_size/2. \"ewd_verlet_i_short_energy\" assumes REAL_CUTOFF < box_size/2 for first image convention.\n");
+        LOG_WARNING("%s", CUTOFF_WARNING_MESSAGE);
     }
 
     double real_space_i_energy = 0;
@@ -212,7 +231,7 @@ double ewd_verlet_i_short_energy(int i, const double *pos_array, const double *c
 
     if (REAL_CUTOFF > box_size / 2)
     {
-        printf("Warning: REAL_CUTOFF is grater than box_size/2. \"ewd_verlet_i_short_energy\" assumes REAL_CUTOFF < box_size/2 for first image convention.\n");
+        LOG_WARNING("%s", CUTOFF_WARNING_MESSAGE);
     }
 
     double real_space_i_energy = 0;
@@ -242,7 +261,7 @@ double ewd_verlet_i_short_energy(int i, const double *pos_array, const double *c
 
         if (r_ij_mod2 < EWD_EPSILON)
         {
-            printf("Warning: REAL_CUTOFF is grater than box_size/2. \"ewd_verlet_i_short_energy\" assumes REAL_CUTOFF < box_size/2 for first image convention.\n");
+            printf("WARNING: 2 particles found below EWD_EPSILON distance, possible arithmetic error in energy evaluation");
         }
 
         double r_ij_mod = sqrt(r_ij_mod2);
@@ -379,7 +398,7 @@ double ewd_total_energy(const double *pos_array, const double *charge_array, int
 
     if (OPTIMIZED == 0)
     {
-        printf("Warning: parameters has not been optimized\n");
+        printf("WARNING: Ewald parameters has not been optimized. Call \"optimizeParameter\" or set ALPHA, REAL_CUTOFF and RECIPROCAL_RANGE by hand.\n");
     }
 
     static double self_energy = 0;
@@ -411,7 +430,7 @@ double ewd_verlet_total_energy(const double *pos_array, const double *charge_arr
 
     if (OPTIMIZED == 0)
     {
-        printf("Warning: parameters has not been optimized\n");
+        printf("WARNING: Ewald parameters has not been optimized. Call \"optimizeParameter\" or set ALPHA, REAL_CUTOFF and RECIPROCAL_RANGE by hand.\n");
     }
 
     static double self_energy = 0;
