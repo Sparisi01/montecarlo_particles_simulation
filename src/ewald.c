@@ -34,16 +34,32 @@
 static double RECIPROCAL_RANGE;
 static double REAL_CUTOFF;
 static double ALPHA;
-static int OPTIMIZED = 0;
+static int EWD_OPTIMIZED = 0;
 
 static double complex *S_K = NULL;
 
-const char CUTOFF_WARNING_MESSAGE[] =
+static const char EWD_ERROR_MESSAGE_CUTOFF[] =
     "REAL_CUTOFF exceeds box_size/2, violating the first-image convention "
-    "assumed by \"ewd_verlet_i_short_energy\". "
-    "Computed energies may be incorrect. "
-    "Consider increasing the \"error\" tolerance or manually tuning "
+    "assumed by \"ewd_verlet_i_short_energy\".\n"
+    "Computed energies will not give a correct result.\n"
+    "Consider increasing the expected absolute energy error or manually tuning "
     "ALPHA, REAL_CUTOFF, and RECIPROCAL_RANGE.\n";
+
+static const char EWD_ERROR_MESSAGE_NO_CHARGE[] =
+    "All charges are set to 0. Optimization cannot proceed with zero charges.\n"
+    "Possible solutions:\n"
+    "- Disable Coulomb interaction if it's not needed.\n"
+    "- Modify the 'charge_array' to use non-zero charge values.\n"
+    "- Ensure the charge values are correctly initialized.\n "
+    "Please check your input parameters and try again.";
+
+static const char EWD_WARNING_OVERLAP_PARTICLE[] =
+    "2 particles found below EWD_EPSILON distance, possible arithmetic error in energy evaluation";
+
+static const char EWD_WARNING_MESSAGE_NO_OPTIMIZATION_PERFORMED[] =
+    "Ewald parameters has not been optimized.\n"
+    "Consider calling \"optimizeParameter\" or set ALPHA, REAL_CUTOFF and RECIPROCAL_RANGE by hand.\n"
+    "If you have done it already set EWD_OPTIMIZED to 1 to disable this warning message.";
 
 /**
  * @brief The following three functions perform an optimization of Ewald parameters given
@@ -59,7 +75,8 @@ const char CUTOFF_WARNING_MESSAGE[] =
  * @cite TODO: cite the paper for this part
  */
 
-static double errorsDifference(double error, double s, double Q2, double cell_length)
+static double
+errorsDifference(double error, double s, double Q2, double cell_length)
 {
     return exp(-(s * s)) / (pow(s, 3. / 2)) * Q2 * sqrt((2 + PI) / (2 * PI * ALPHA * pow(cell_length, 3))) - error;
 };
@@ -71,8 +88,9 @@ static double findSbybisection(double a, double b, double error, double Q2, doub
 
     if (!(max > 0 && min < 0))
     {
-        LOG_ERROR("Max e min non rispettano parametri bisezione");
+        LOG_FATAL("Max e min non rispettano parametri bisezione");
     };
+
     double c = 0;
     int root_find = 0;
     while (!root_find)
@@ -105,13 +123,7 @@ void optimizeParameter(double error, double box_size, const double *charge_array
 
     if (Q2 == 0)
     {
-        fprintf(stderr, "\033[1;31mERROR: All charges are set to 0. Optimization cannot proceed with zero charges.\n");
-        fprintf(stderr, "Possible solutions:\n");
-        fprintf(stderr, "- Disable Coulomb interaction if it's not needed.\n");
-        fprintf(stderr, "- Modify the 'charge_array' to use non-zero charge values.\n");
-        fprintf(stderr, "- Ensure the charge values are correctly initialized.\n");
-        fprintf(stderr, "Please check your input parameters and try again.\n");
-        fprintf(stderr, "\033[0m"); // Resets color to default
+        LOG_FATAL("%s", EWD_ERROR_MESSAGE_NO_CHARGE);
     }
 
     // These 3 parameters actually depends on the machine you are running these, but the result for ALPHA is not hightly sensible on TAU_RAPP
@@ -127,14 +139,18 @@ void optimizeParameter(double error, double box_size, const double *charge_array
     double kc = 2 * s * ALPHA;
     RECIPROCAL_RANGE = ceil(kc / (2 * PI / box_size));
 
-    printf("OPTIMIZED PARAMETERS: ALPHA = %.5E, R_C = %.5E, N_C_K = %.5E\n", ALPHA, REAL_CUTOFF, RECIPROCAL_RANGE);
+    LOG_INFO("Ewald parameters succesfully optimized:\n"
+             "- ALPHA = %.5E\n"
+             "- REAL_CUTOFF = %.5E\n"
+             "- RECIPROCAL_RANGE = %.5E",
+             ALPHA, REAL_CUTOFF, RECIPROCAL_RANGE);
 
     if (REAL_CUTOFF > box_size / 2)
     {
-        LOG_WARNING("%s", CUTOFF_WARNING_MESSAGE);
+        LOG_FATAL("%s", EWD_ERROR_MESSAGE_CUTOFF);
     }
 
-    OPTIMIZED = 1;
+    EWD_OPTIMIZED = 1;
 }
 
 // Much simple parameter oprimization
@@ -178,7 +194,7 @@ double ewd_i_short_energy(int i, const double *pos_array, const double *charge_a
 
     if (REAL_CUTOFF > box_size / 2)
     {
-        LOG_WARNING("%s", CUTOFF_WARNING_MESSAGE);
+        LOG_FATAL("%s", EWD_ERROR_MESSAGE_CUTOFF);
     }
 
     double real_space_i_energy = 0;
@@ -207,7 +223,7 @@ double ewd_i_short_energy(int i, const double *pos_array, const double *charge_a
 
         if (r_ij_mod2 < EWD_EPSILON)
         {
-            printf("WARNING: 2 particles found below EWD_EPSILON distance, possible arithmetic error in energy evaluation");
+            LOG_WARNING("%s", EWD_WARNING_OVERLAP_PARTICLE);
         }
 
         const double r_ij_mod = sqrt(r_ij_mod2);
@@ -231,7 +247,7 @@ double ewd_verlet_i_short_energy(int i, const double *pos_array, const double *c
 
     if (REAL_CUTOFF > box_size / 2)
     {
-        LOG_WARNING("%s", CUTOFF_WARNING_MESSAGE);
+        LOG_FATAL("%s", EWD_ERROR_MESSAGE_CUTOFF);
     }
 
     double real_space_i_energy = 0;
@@ -261,7 +277,7 @@ double ewd_verlet_i_short_energy(int i, const double *pos_array, const double *c
 
         if (r_ij_mod2 < EWD_EPSILON)
         {
-            printf("WARNING: 2 particles found below EWD_EPSILON distance, possible arithmetic error in energy evaluation");
+            LOG_WARNING("%s", EWD_WARNING_OVERLAP_PARTICLE);
         }
 
         double r_ij_mod = sqrt(r_ij_mod2);
@@ -396,9 +412,9 @@ double ewd_long_energy(const double *pos_array, const double *charge_array, int 
 double ewd_total_energy(const double *pos_array, const double *charge_array, int n_particles, double box_size)
 {
 
-    if (OPTIMIZED == 0)
+    if (EWD_OPTIMIZED == 0)
     {
-        printf("WARNING: Ewald parameters has not been optimized. Call \"optimizeParameter\" or set ALPHA, REAL_CUTOFF and RECIPROCAL_RANGE by hand.\n");
+        LOG_WARNING("%s", EWD_WARNING_MESSAGE_NO_OPTIMIZATION_PERFORMED);
     }
 
     static double self_energy = 0;
@@ -428,9 +444,9 @@ double ewd_total_energy(const double *pos_array, const double *charge_array, int
 double ewd_verlet_total_energy(const double *pos_array, const double *charge_array, const VerletList_t *vl, int n_particles, double box_size)
 {
 
-    if (OPTIMIZED == 0)
+    if (EWD_OPTIMIZED == 0)
     {
-        printf("WARNING: Ewald parameters has not been optimized. Call \"optimizeParameter\" or set ALPHA, REAL_CUTOFF and RECIPROCAL_RANGE by hand.\n");
+        LOG_WARNING("%s", EWD_WARNING_MESSAGE_NO_OPTIMIZATION_PERFORMED);
     }
 
     static double self_energy = 0;

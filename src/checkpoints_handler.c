@@ -4,6 +4,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "logger.c"
+
+static const char CHECKPOINT_ERROR_MESSAGE_INFO_MISSMATCH[] = "Incompatible checkpoint. N particle or space dimension missmatch";
 /**
  * @brief Function to save the current system and rng state in a bin file.
  * Used to start a simulation from a fixed point in time instead of having to simulate all over again.
@@ -18,8 +21,7 @@ void save_checkpoint_binary(const char *filename,
     FILE *f = fopen(filename, "wb");
     if (!f)
     {
-        perror("Checkpoint save failed");
-        exit(EXIT_FAILURE);
+        LOG_FATAL("Checkpoint save failed");
     }
 
     fwrite(&n_particles, sizeof(int), 1, f);
@@ -51,8 +53,7 @@ void load_checkpoint_binary(const char *filename,
     FILE *f = fopen(filename, "rb");
     if (!f)
     {
-        perror("Checkpoint load failed");
-        exit(EXIT_FAILURE);
+        LOG_FATAL("Checkpoint load failed");
     }
 
     int n_p, s_d;
@@ -61,8 +62,7 @@ void load_checkpoint_binary(const char *filename,
 
     if (n_p != n_particles || s_d != space_dim)
     {
-        fprintf(stderr, "ERROR: Incompatible checkpoint. N particle or space dimension missmatch\n");
-        exit(EXIT_FAILURE);
+        LOG_FATAL("%s", CHECKPOINT_ERROR_MESSAGE_INFO_MISSMATCH);
     }
 
     fread(energy, sizeof(double), 1, f);

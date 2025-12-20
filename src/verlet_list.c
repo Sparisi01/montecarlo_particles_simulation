@@ -2,18 +2,22 @@
 #define VERLET_LIST_H
 
 // Expected to be desnity * sphere volume
-#define MAX_NEIGHBORS 320
+#define VERLET_MAX_NEIGHBORS 512
 
 #include <stdlib.h>
 #include <stdio.h>
 
 #include "constants.c"
 #include "periodic_boundaries.c"
+#include "logger.c"
+
+static const char VERLET_ERROR_MAX_NEIGHT_EXCEED[] = "Max neightbors exceeded.\n"
+                                                     "Increase VERLET_MAX_NEIGHBORS.";
 
 struct VerletList_t
 {
     int count;
-    int list[MAX_NEIGHBORS]; // List of indexes
+    int list[VERLET_MAX_NEIGHBORS]; // List of indexes
 } typedef VerletList_t;
 
 void verlet_pb_build_list(const double *pos_array,
@@ -47,14 +51,13 @@ void verlet_pb_build_list(const double *pos_array,
 
             if (r2 < r_verlet2)
             {
-                if (vl[i].count < MAX_NEIGHBORS)
+                if (vl[i].count < VERLET_MAX_NEIGHBORS)
                 {
                     vl[i].list[vl[i].count++] = k;
                 }
                 else
                 {
-                    fprintf(stderr, "ERROR: MAX_NEIGHBORS exceeded for particle %zu\n", i);
-                    exit(EXIT_FAILURE);
+                    LOG_FATAL("%s", VERLET_ERROR_MAX_NEIGHT_EXCEED);
                 }
             }
         }

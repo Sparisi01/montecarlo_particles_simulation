@@ -24,8 +24,8 @@
     fprintf(stderr, COLOR_YELLOW "WARNING (%s:%d): " fmt COLOR_RESET "\n", \
             __FILE__, __LINE__, ##__VA_ARGS__)
 
-#define LOG_INFO(fmt, ...)                                    \
-    fprintf(stderr, COLOR_BLUE "INFO: " fmt COLOR_RESET "\n", \
+#define LOG_INFO(fmt, ...)             \
+    fprintf(stderr, "INFO: " fmt "\n", \
             ##__VA_ARGS__)
 
 #define LOG_FATAL(fmt, ...)            \

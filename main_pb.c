@@ -219,7 +219,6 @@ void init_system_lattice(double *pos_array,
                     charge_array[n_particle_placed] = (parity == 0) ? 1.0 : -1.0;
 
                     mass_array[n_particle_placed] = 1;
-                    charge_array[n_particle_placed] = 0;
                     n_particle_placed++;
                 }
             }
@@ -378,8 +377,8 @@ double verlet_pb_metropolis_step_one_particle(double energy,
         int i = perm[p];
 
         double old_energy = pb_verlet_compute_i_lennar_jones_potential(i, pos_array, charge_array, vl, n_particles, space_dim, box_size, 1, 1);
-        old_energy += ewd_verlet_i_short_energy(i, pos_array, charge_array, vl, n_particles, box_size);
-        // old_energy += ewd_long_energy(pos_array, charge_array, n_particles, box_size);
+        if (COULOMB_INTERACTION_ON)
+            old_energy += ewd_verlet_i_short_energy(i, pos_array, charge_array, vl, n_particles, box_size);
 
         // Random step in j direction between -delta and + delta
         for (int j = 0; j < space_dim; j++)
@@ -391,17 +390,18 @@ double verlet_pb_metropolis_step_one_particle(double energy,
         }
 
         double new_energy = pb_verlet_compute_i_lennar_jones_potential(i, pos_array, charge_array, vl, n_particles, space_dim, box_size, 1, 1);
-        new_energy += ewd_verlet_i_short_energy(i, pos_array, charge_array, vl, n_particles, box_size);
-        // new_energy += ewd_long_energy(pos_array, charge_array, n_particles, box_size);
+        if (COULOMB_INTERACTION_ON)
+            new_energy += ewd_verlet_i_short_energy(i, pos_array, charge_array, vl, n_particles, box_size);
 
-        double dE_ewald = ewd_delta_long_energy(i, pos_array, old_position, charge_array, box_size);
+        double dE = new_energy - old_energy;
 
-        double dE = new_energy - old_energy + dE_ewald;
+        if (COULOMB_INTERACTION_ON)
+            dE += ewd_delta_long_energy(i, pos_array, old_position, charge_array, box_size);
 
         /** Metropolis acceptance criterion
          *
          * @brief If the step is accepted update the current total energy using dE
-         * and apply periodic boundary condtion bringing all the particle back
+         * and apply periodic boundary condition bringing all the particle back
          * to the first cubic cell.
          *
          * If the step is refused, undo the space step using the steps dj
@@ -447,9 +447,9 @@ int main(int argc, char const *argv[])
      * lattice_type & n_cell_per_row define the number of particles,
      * density and number of particles define the box size.
      */
-    const int lattice_type = 4;   // Lattice type 1 CC, 2 BCC, 4 FCC
-    const int n_cell_per_row = 4; // Number of lattice cell per row
-    const double density = 1.2;
+    const int lattice_type = 4;    // Lattice type 1 CC, 2 BCC, 4 FCC
+    const int n_cell_per_row = 10; // Number of lattice cell per row
+    const double density = 0.1;
 
     const int space_dimension = 3; // 1D - 2D - 3D - ... - nD
 
@@ -558,8 +558,8 @@ int main(int argc, char const *argv[])
      * I think one can do that by approximating the metropolis step as a random walk and using the fact that
      * we how which std it has, sqrt(N).
      */
-    const double r_cut = 2.5 * SIGMA;
-    const double skin = 0.5 * r_cut;
+    const double verlet_max_neightbor_distance = 2.5 * SIGMA; // Same used in Lennar Jones
+    const double skin = 1 * verlet_max_neightbor_distance;
 
     double *old_pos_array = (double *)malloc(total_vel_pos_array_size * sizeof(double));
     if (old_pos_array == NULL)
@@ -570,12 +570,16 @@ int main(int argc, char const *argv[])
         exit(EXIT_FAILURE);
 
     // Build verlet list
-    verlet_pb_build_list(pos_array, old_pos_array, verlet_list, n_particles, space_dimension, box_size, r_cut, skin);
+    verlet_pb_build_list(pos_array, old_pos_array, verlet_list, n_particles, space_dimension, box_size, verlet_max_neightbor_distance, skin);
 
     // Optimize Ewald Summation Parameters
     if (COULOMB_INTERACTION_ON)
     {
-        optimizeParameter(1e-2, box_size, charge_array, n_particles);
+        optimizeParameter(1, box_size, charge_array, n_particles);
+        if (REAL_CUTOFF > verlet_max_neightbor_distance)
+            LOG_WARNING("REAL_CUTOFF greater than verlet_max_neightbor_distance.\n"
+                        "There is the possibility that some ral space coulomb interactions may be excluded by the verlet list.\n"
+                        "Consider increasing verlet_max_neightbor_distance or decrease the REAL_CUTOFF by optimizing ewald with using a larger error.");
     }
 
     // Initialization of S(K) vector in the starting position
@@ -746,7 +750,7 @@ SINGLE_TEMPERATURE_SIMULATION:
         // Check if the verlet list need to be rebuild
         if (verlet_pb_needs_rebuild(pos_array, old_pos_array, n_particles, space_dimension, box_size, skin))
         {
-            verlet_pb_build_list(pos_array, old_pos_array, verlet_list, n_particles, space_dimension, box_size, r_cut, skin);
+            verlet_pb_build_list(pos_array, old_pos_array, verlet_list, n_particles, space_dimension, box_size, verlet_max_neightbor_distance, skin);
             if (counting_verlet < min_counting_verlet)
             {
                 min_counting_verlet = counting_verlet;
@@ -775,7 +779,7 @@ SINGLE_TEMPERATURE_SIMULATION:
          * Save energy every 10 steps to reduce time correlation, one whould do a better analysis than this. I expect the correlation to be
          * much highter than 10 but this requires further investigations
          */
-        if ((i > 0))
+        if (i > 0)
         {
             fprintf(energy_file, "%lf\n", energy);
         }
@@ -843,8 +847,6 @@ void print_simulation_information(const int n_particles,
     printf(" Start energy      : %.6e\n", energy);
 
     double no_verlet_energy = pb_compute_total_energy(pos_array, charge_array, n_particles, space_dimension, box_size, 1, 1);
-    printf(" Relative error    : %.6e\n",
-           fabs(energy - no_verlet_energy) / fabs(energy));
     assert(fabs(energy - no_verlet_energy) / fabs(energy) < 1e-3);
 
     printf("-------------------------------------\n");
