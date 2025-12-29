@@ -14,8 +14,8 @@
  * @date 17 December 2025
  */
 
-#ifndef EWALD_H
-#define EWALD_H
+#ifndef EWALD_H_C
+#define EWALD_H_C
 
 #include <math.h>
 #include <inttypes.h>
@@ -242,7 +242,7 @@ double ewd_i_short_energy(int i, const double *pos_array, const double *charge_a
  * @note Requires a right initialized VerletList vl.
  * @note Complexity O(1)
  */
-double ewd_verlet_i_short_energy(int i, const double *pos_array, const double *charge_array, const VerletList_t *vl, int n_particles, double box_size)
+double ewd_verlet_i_short_energy(int i, const double *pos_array, const double *charge_array, const IndexesList_t *vl, int n_particles, double box_size)
 {
 
     if (REAL_CUTOFF > box_size / 2)
@@ -313,7 +313,7 @@ double ewd_short_energy(const double *pos_array, const double *charge_array, int
  *
  * @note requires a right initialized VerletList vl.
  */
-double ewd_verlet_short_energy(const double *pos_array, const double *charge_array, const VerletList_t *vl, int n_particles, double box_size)
+double ewd_verlet_short_energy(const double *pos_array, const double *charge_array, const IndexesList_t *vl, int n_particles, double box_size)
 {
     double real_space_energy = 0;
 
@@ -441,7 +441,7 @@ double ewd_total_energy(const double *pos_array, const double *charge_array, int
  *
  * @note Complexity O(N)
  */
-double ewd_verlet_total_energy(const double *pos_array, const double *charge_array, const VerletList_t *vl, int n_particles, double box_size)
+double ewd_verlet_total_energy(const double *pos_array, const double *charge_array, const IndexesList_t *vl, int n_particles, double box_size)
 {
 
     if (EWD_OPTIMIZED == 0)
@@ -632,8 +632,10 @@ void ewd_init_S_K(const double *pos_array, const double *charge_array, int n_par
     }
 
     S_K = calloc(Ntot, sizeof(double complex));
-    if (!S_K)
+    if (S_K == NULL)
+    {
         exit(EXIT_FAILURE);
+    }
 
     ewd_fill_S_K(pos_array, charge_array, n_particles, box_size);
 }

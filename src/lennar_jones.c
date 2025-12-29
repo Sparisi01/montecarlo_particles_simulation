@@ -5,6 +5,9 @@
 #include "verlet_list.c"
 #include "periodic_boundaries.c"
 
+const double LENNAR_JONES_CUT_OFF_IN_SIGMA_UNIT = 2.5;
+const double LENNAR_JONES_LOW_DISTANCE_CUTOFF = 1e-8;
+
 /**
  * @brief Compute the lennar jones potential associated with a particle interacting
  * with all the others, in periodic boundary condition.
@@ -16,20 +19,20 @@
  * we perform an energy vertical shift (VSHIFT). This shift is the same
  * for all the simulation, so it has to be computed only once.
  */
-double pb_compute_i_lennar_jones_potential(int i,
-                                           const double *pos_array,
-                                           const double *charge_array,
-                                           int n_particles,
-                                           int space_dim,
-                                           double box_size,
-                                           double epsilon,
-                                           double sigma)
+double pb_i_lennar_jones_potential(int i,
+                                   const double *pos_array,
+                                   const double *charge_array,
+                                   int n_particles,
+                                   int space_dim,
+                                   double box_size,
+                                   double epsilon,
+                                   double sigma)
 {
     double energy_i = 0;
     double sigma_6 = sigma * sigma * sigma * sigma * sigma * sigma;
     double sigma_12 = sigma_6 * sigma_6;
 
-    double r_c = 2.5 * sigma;
+    double r_c = LENNAR_JONES_CUT_OFF_IN_SIGMA_UNIT * sigma;
     static double VSHIFT = 0;
     if (VSHIFT == 0)
     {
@@ -62,9 +65,9 @@ double pb_compute_i_lennar_jones_potential(int i,
         }
 
         // Low cutoff in order to avoid computation error
-        if (r2 < 1e-8)
+        if (r2 < LENNAR_JONES_LOW_DISTANCE_CUTOFF)
         {
-            r2 = 1e-8;
+            r2 = LENNAR_JONES_LOW_DISTANCE_CUTOFF;
         }
 
         double inv_r2 = 1. / r2;
@@ -80,23 +83,23 @@ double pb_compute_i_lennar_jones_potential(int i,
 }
 
 /**
- * @brief Compute the total lennar jones potential in periodic boundary condition using "pb_compute_i_lennar_jones_potential".
+ * @brief Compute the total lennar jones potential in periodic boundary condition using "pb_i_lennar_jones_potential".
  * See that for more.
  * It work regarding the space dimension.
  */
-double pb_compute_lennar_jones_energy(const double *pos_array,
-                                      const double *charge_array,
-                                      int n_particles,
-                                      int space_dim,
-                                      double box_size,
-                                      double epsilon,
-                                      double sigma)
+double pb_total_lennar_jones_energy(const double *pos_array,
+                                    const double *charge_array,
+                                    int n_particles,
+                                    int space_dim,
+                                    double box_size,
+                                    double epsilon,
+                                    double sigma)
 {
     double energy = 0.0;
 
     for (size_t i = 0; i < n_particles; i++)
     {
-        energy += pb_compute_i_lennar_jones_potential(i, pos_array, charge_array, n_particles, space_dim, box_size, epsilon, sigma);
+        energy += pb_i_lennar_jones_potential(i, pos_array, charge_array, n_particles, space_dim, box_size, epsilon, sigma);
     }
 
     energy *= 0.5; // remove double counting from pb_compute_one_particle_energy
@@ -104,15 +107,15 @@ double pb_compute_lennar_jones_energy(const double *pos_array,
     return energy;
 }
 
-double pb_verlet_compute_i_lennar_jones_potential(int i,
-                                                  const double *pos_array,
-                                                  const double *charge_array,
-                                                  const VerletList_t *vl,
-                                                  int n_particles,
-                                                  int space_dim,
-                                                  double box_size,
-                                                  double epsilon,
-                                                  double sigma)
+double pb_verlet_i_lennar_jones_potential(int i,
+                                          const double *pos_array,
+                                          const double *charge_array,
+                                          const IndexesList_t *vl,
+                                          int n_particles,
+                                          int space_dim,
+                                          double box_size,
+                                          double epsilon,
+                                          double sigma)
 {
     double energy_i = 0;
 
@@ -126,7 +129,7 @@ double pb_verlet_compute_i_lennar_jones_potential(int i,
      * we perform an energy vertical shift (VSHIFT). This shift is the same
      * for all the simulation, so it has to be computed only once.
      */
-    double r_c = 2.5 * sigma;
+    double r_c = LENNAR_JONES_CUT_OFF_IN_SIGMA_UNIT * sigma;
 
     static double VSHIFT = 0;
     if (VSHIFT == 0)
@@ -163,9 +166,9 @@ double pb_verlet_compute_i_lennar_jones_potential(int i,
         }
 
         // Low cutoff in order to avoid computation error
-        if (r2 < 1e-6)
+        if (r2 < LENNAR_JONES_LOW_DISTANCE_CUTOFF)
         {
-            r2 = 1e-6;
+            r2 = LENNAR_JONES_LOW_DISTANCE_CUTOFF;
         }
 
         double inv_r2 = 1. / r2;
@@ -180,20 +183,20 @@ double pb_verlet_compute_i_lennar_jones_potential(int i,
     return energy_i;
 }
 
-double pb_verlet_compute_lennar_jones_energy(const double *pos_array,
-                                             const double *charge_array,
-                                             const VerletList_t *vl,
-                                             int n_particles,
-                                             int space_dim,
-                                             double box_size,
-                                             double epsilon,
-                                             double sigma)
+double pb_verlet_tot_lennar_jones_energy(const double *pos_array,
+                                         const double *charge_array,
+                                         const IndexesList_t *vl,
+                                         int n_particles,
+                                         int space_dim,
+                                         double box_size,
+                                         double epsilon,
+                                         double sigma)
 {
     double energy = 0.0;
 
     for (size_t i = 0; i < n_particles; i++)
     {
-        energy += pb_verlet_compute_i_lennar_jones_potential(i, pos_array, charge_array, vl, n_particles, space_dim, box_size, epsilon, sigma);
+        energy += pb_verlet_i_lennar_jones_potential(i, pos_array, charge_array, vl, n_particles, space_dim, box_size, epsilon, sigma);
     }
 
     energy *= 0.5; // remove double counting from pb_compute_one_particle_energy

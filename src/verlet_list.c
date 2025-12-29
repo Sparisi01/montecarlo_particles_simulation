@@ -1,7 +1,7 @@
-#ifndef VERLET_LIST_H
-#define VERLET_LIST_H
+#ifndef VERLET_LIST_C
+#define VERLET_LIST_C
 
-// Expected to be desnity * sphere volume
+// Expected to be density * sphere volume
 #define VERLET_MAX_NEIGHBORS 512
 
 #include <stdlib.h>
@@ -14,15 +14,15 @@
 static const char VERLET_ERROR_MAX_NEIGHT_EXCEED[] = "Max neightbors exceeded.\n"
                                                      "Increase VERLET_MAX_NEIGHBORS.";
 
-struct VerletList_t
+struct IndexesList_t
 {
     int count;
     int list[VERLET_MAX_NEIGHBORS]; // List of indexes
-} typedef VerletList_t;
+} typedef IndexesList_t;
 
 void verlet_pb_build_list(const double *pos_array,
                           double *old_pos_array,
-                          VerletList_t *vl,
+                          IndexesList_t *vl,
                           int n_particles,
                           int space_dim,
                           double box_size,
@@ -73,6 +73,9 @@ int verlet_pb_needs_rebuild(const double *pos_array,
                             double box_size,
                             double skin)
 {
+    /** NOTE Multiplied by 0.5 to stay safe in the case that two particles moved toward each other
+     *   by (skin * 0.5), resulting in a new displacement distance decreased by (2*skin*0.5) = skin
+     */
     double limit2 = (skin * 0.5) * (skin * 0.5);
 
     for (size_t i = 0; i < n_particles; i++)
@@ -94,7 +97,7 @@ int verlet_pb_needs_rebuild(const double *pos_array,
 /**
  * @brief Get max number of neightbours in the verlet list
  */
-int get_max_verlet_count(VerletList_t *vl,
+int get_max_verlet_count(IndexesList_t *vl,
                          int n_particles)
 {
     int max_count = 0;

@@ -1,5 +1,5 @@
-#ifndef PROGRESS_BAR
-#define PROGRESS_BAR
+#ifndef PROGRESS_BAR_C
+#define PROGRESS_BAR_C
 
 #include <time.h>
 #include <stdio.h>
@@ -8,20 +8,6 @@
 /* PRINT_PROGRESS
  *
  * Prints a terminal progress bar with percentage and estimated time remaining (ETA).
- *
- * Parameters:
- *   current     – current iteration (0 … total)
- *   total       – total number of iterations
- *   start_time  – the time (time_t) when the process started; used to compute ETA
- *
- * Behavior:
- *   - The function prints a character progress bar using "#" character.
- *   - It overwrites the same terminal line using '\r'.
- *   - ETA is computed from elapsed time and current progress and displayed as HH:MM:SS.
- *
- * Usage:
- *   Call this function periodically inside a loop to update the progress bar without
- *   significantly impacting performance.
  */
 void print_progress(size_t current, size_t total, clock_t start_time)
 {
@@ -50,8 +36,7 @@ void print_progress(size_t current, size_t total, clock_t start_time)
             printf(".");
     }
 
-    printf("] %5.1f%%  ETA: %02d:%02d:%02d (hh:mm:ss)",
-           progress * 100, eta_h, eta_m, eta_s);
+    printf("] %5.1f%%  ETA: %02d:%02d:%02d (hh:mm:ss)", progress * 100, eta_h, eta_m, eta_s);
 
     fflush(stdout);
 }

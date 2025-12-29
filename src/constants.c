@@ -1,5 +1,5 @@
-#ifndef CONSTANTS
-#define CONSTANTS
+#ifndef CONSTANTS_C
+#define CONSTANTS_C
 
 #define SEED 42
 

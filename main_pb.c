@@ -24,7 +24,9 @@
 #include "src/ewald.c"
 #include "src/progress_bar.c"
 #include "src/verlet_list.c"
-#include "main_pb.h"
+
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+#define MIX(a, b) ((a) < (b) ? (a) : (b))
 
 enum SIMULATION_TYPE
 {
@@ -108,7 +110,7 @@ double pb_compute_total_energy(const double *pos_array,
                                double sigma)
 {
     double total_energy = 0;
-    total_energy += pb_compute_lennar_jones_energy(pos_array, charge_array, n_particles, space_dim, box_size, epsilon, sigma);
+    total_energy += pb_total_lennar_jones_energy(pos_array, charge_array, n_particles, space_dim, box_size, epsilon, sigma);
 
     if (COULOMB_INTERACTION_ON)
     {
@@ -128,7 +130,7 @@ double pb_compute_total_energy(const double *pos_array,
  */
 double pb_verlet_compute_total_energy(const double *pos_array,
                                       const double *charge_array,
-                                      const VerletList_t *verlet_list,
+                                      const IndexesList_t *verlet_list,
                                       int n_particles,
                                       int space_dim,
                                       double box_size,
@@ -136,7 +138,7 @@ double pb_verlet_compute_total_energy(const double *pos_array,
                                       double sigma)
 {
     double total_energy = 0;
-    total_energy += pb_verlet_compute_lennar_jones_energy(pos_array, charge_array, verlet_list, n_particles, space_dim, box_size, epsilon, sigma);
+    total_energy += pb_verlet_tot_lennar_jones_energy(pos_array, charge_array, verlet_list, n_particles, space_dim, box_size, epsilon, sigma);
 
     if (COULOMB_INTERACTION_ON)
     {
@@ -328,13 +330,15 @@ double pb_metropolis_step_full_system(double old_energy, double *pos_array, cons
 double verlet_pb_metropolis_step_one_particle(double energy,
                                               double *pos_array,
                                               const double *charge_array,
-                                              const VerletList_t *vl,
+                                              const IndexesList_t *vl,
                                               double delta,
                                               double temperature,
                                               int n_particles,
                                               int space_dim,
                                               long *accepted_counter,
-                                              double box_size)
+                                              double box_size,
+                                              double epsilon,
+                                              double sigma)
 {
 
     /** In order to remove the bias caused by updating all the particle using always the
@@ -354,6 +358,7 @@ double verlet_pb_metropolis_step_one_particle(double energy,
 
     for (int i = n_particles - 1; i > 0; i--)
     {
+        // Swap two random indexes in the sub array 0,1,...,i
         int j = (int)(drand48() * (i + 1));
         int tmp = perm[i];
         perm[i] = perm[j];
@@ -376,7 +381,7 @@ double verlet_pb_metropolis_step_one_particle(double energy,
 
         int i = perm[p];
 
-        double old_energy = pb_verlet_compute_i_lennar_jones_potential(i, pos_array, charge_array, vl, n_particles, space_dim, box_size, 1, 1);
+        double old_energy = pb_verlet_i_lennar_jones_potential(i, pos_array, charge_array, vl, n_particles, space_dim, box_size, epsilon, sigma);
         if (COULOMB_INTERACTION_ON)
             old_energy += ewd_verlet_i_short_energy(i, pos_array, charge_array, vl, n_particles, box_size);
 
@@ -389,7 +394,7 @@ double verlet_pb_metropolis_step_one_particle(double energy,
             steps_save[j] = dj;
         }
 
-        double new_energy = pb_verlet_compute_i_lennar_jones_potential(i, pos_array, charge_array, vl, n_particles, space_dim, box_size, 1, 1);
+        double new_energy = pb_verlet_i_lennar_jones_potential(i, pos_array, charge_array, vl, n_particles, space_dim, box_size, epsilon, sigma);
         if (COULOMB_INTERACTION_ON)
             new_energy += ewd_verlet_i_short_energy(i, pos_array, charge_array, vl, n_particles, box_size);
 
@@ -437,6 +442,36 @@ double verlet_pb_metropolis_step_one_particle(double energy,
     return energy;
 }
 
+void print_simulation_information(const int n_particles,
+                                  const double box_size,
+                                  IndexesList_t *verlet_list,
+                                  double energy,
+                                  double *pos_array,
+                                  double *charge_array,
+                                  const int space_dimension,
+                                  double density)
+{
+    printf("\n");
+    printf("=====================================\n");
+    printf("        STARTING SIMULATION\n");
+    printf("=====================================\n");
+
+    printf(" N_particles : %d\n", n_particles);
+    printf(" Box_size    : %.3f\n", box_size);
+    printf(" Density     : %.3f\n", density);
+
+    printf("-------------------------------------\n");
+    printf(" Max verlet count: %d\n", get_max_verlet_count(verlet_list, n_particles));
+    printf("-------------------------------------\n");
+
+    printf(" Start energy      : %.6e\n", energy);
+
+    double no_verlet_energy = pb_compute_total_energy(pos_array, charge_array, n_particles, space_dimension, box_size, 1, 1);
+    assert(fabs(energy - no_verlet_energy) / fabs(energy) < 1e-3);
+
+    printf("-------------------------------------\n");
+}
+
 // ------------------------------------------------------------------
 
 int main(int argc, char const *argv[])
@@ -466,6 +501,9 @@ int main(int argc, char const *argv[])
         fprintf(stderr, "WARNING: space_step could be too hight for the current box_size.\n");
         fprintf(stderr, "Space_step = %lf, Box_size = %lf\n", space_step, box_size);
     }
+
+    const double lennar_jones_epsilon = 1;
+    const double lennar_jones_sigma = 1;
 
     /**
      * Positions and velocities are store in a flattered array of size (N * SPACE_DIM), where
@@ -563,11 +601,15 @@ int main(int argc, char const *argv[])
 
     double *old_pos_array = (double *)malloc(total_vel_pos_array_size * sizeof(double));
     if (old_pos_array == NULL)
+    {
         exit(EXIT_FAILURE);
+    }
 
-    VerletList_t *verlet_list = (VerletList_t *)malloc(sizeof(VerletList_t) * n_particles);
+    IndexesList_t *verlet_list = (IndexesList_t *)malloc(sizeof(IndexesList_t) * n_particles);
     if (verlet_list == NULL)
+    {
         exit(EXIT_FAILURE);
+    }
 
     // Build verlet list
     verlet_pb_build_list(pos_array, old_pos_array, verlet_list, n_particles, space_dimension, box_size, verlet_max_neightbor_distance, skin);
@@ -587,7 +629,7 @@ int main(int argc, char const *argv[])
 
     if (!restart_from_checkpoint)
     {
-        energy = pb_verlet_compute_total_energy(pos_array, charge_array, verlet_list, n_particles, space_dimension, box_size, 1, 1);
+        energy = pb_verlet_compute_total_energy(pos_array, charge_array, verlet_list, n_particles, space_dimension, box_size, lennar_jones_epsilon, lennar_jones_sigma);
     }
 
     // Print a lot of informations about the simulation in order to spot possible errors at the start of simulation
@@ -672,7 +714,7 @@ INCREASE_TEMPERATURE_SIMULATION:
                 fflush(stdout);
             }
 
-            energy = verlet_pb_metropolis_step_one_particle(energy, pos_array, charge_array, verlet_list, space_step, temperature, n_particles, space_dimension, &metropolis_accepted_steps, box_size);
+            energy = verlet_pb_metropolis_step_one_particle(energy, pos_array, charge_array, verlet_list, space_step, temperature, n_particles, space_dimension, &metropolis_accepted_steps, box_size, lennar_jones_epsilon, lennar_jones_sigma);
 
             // TODO: add verlet list update and usage
 
@@ -745,7 +787,7 @@ SINGLE_TEMPERATURE_SIMULATION:
         counting_verlet++;
 
         // energy = pb_metropolis_step_full_system(energy, pos_array, charge_array, space_step, temperature, n_particles, space_dimension, &accepted_steps, box_size);
-        energy = verlet_pb_metropolis_step_one_particle(energy, pos_array, charge_array, verlet_list, space_step, temperature, n_particles, space_dimension, &metropolis_accepted_steps, box_size);
+        energy = verlet_pb_metropolis_step_one_particle(energy, pos_array, charge_array, verlet_list, space_step, temperature, n_particles, space_dimension, &metropolis_accepted_steps, box_size, lennar_jones_epsilon, lennar_jones_sigma);
 
         // Check if the verlet list need to be rebuild
         if (verlet_pb_needs_rebuild(pos_array, old_pos_array, n_particles, space_dimension, box_size, skin))
@@ -820,34 +862,4 @@ FREE_SECTION:
     fclose(radial_distribution_file);
 
     return 0;
-}
-
-void print_simulation_information(const int n_particles,
-                                  const double box_size,
-                                  VerletList_t *verlet_list,
-                                  double energy,
-                                  double *pos_array,
-                                  double *charge_array,
-                                  const int space_dimension,
-                                  double density)
-{
-    printf("\n");
-    printf("=====================================\n");
-    printf("        STARTING SIMULATION\n");
-    printf("=====================================\n");
-
-    printf(" N_particles : %d\n", n_particles);
-    printf(" Box_size    : %.3f\n", box_size);
-    printf(" Density     : %.3f\n", density);
-
-    printf("-------------------------------------\n");
-    printf(" Max verlet count: %d\n", get_max_verlet_count(verlet_list, n_particles));
-    printf("-------------------------------------\n");
-
-    printf(" Start energy      : %.6e\n", energy);
-
-    double no_verlet_energy = pb_compute_total_energy(pos_array, charge_array, n_particles, space_dimension, box_size, 1, 1);
-    assert(fabs(energy - no_verlet_energy) / fabs(energy) < 1e-3);
-
-    printf("-------------------------------------\n");
 }
