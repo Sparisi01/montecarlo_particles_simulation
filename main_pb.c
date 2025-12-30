@@ -1,13 +1,3 @@
-/**
- * @file main_pb.c
- * @brief
- *
- * @details
- *
- * @author Parisi Simone and Lenz Patrick
- * @date 17 December 2025
- */
-
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -515,7 +505,7 @@ int main(int argc, char const *argv[])
     const double lennar_jones_sigma = 1;
 
     /**
-     * Positions and velocities are store in a flattered array of size (N * SPACE_DIM), where
+     * Positions are store in a flattered array of size (N * SPACE_DIM), where
      * the j component of the i particle is stored at index (SPACE_DIM * i + j).
      * In order to retrieve the correct index for component j of particle i use the macro "c(i,j)" defined
      * in constants.c.
