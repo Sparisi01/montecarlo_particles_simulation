@@ -33,7 +33,7 @@ int main(void)
         charge[i] = (i % 2 == 0) ? 1.0 : -1.0;
     }
 
-    optimizeParameter(1e-4, box_size, charge, n_particles);
+    optimizeParameter(5e-4, box_size, charge, n_particles);
 
     /* ------------------ reference energy ------------------ */
     double E0 = ewd_long_energy(
@@ -71,7 +71,7 @@ int main(void)
 
         double err = fabs(dE_brute - dE_inc);
 
-        printf("step %2d | dE_brute = %+ .12e | dE_inc = %+ .12e | err = %.3e\n",
+        printf("step %2d | dE_brute = %+.12e | dE_inc = %+.12e | err = %+.3e\n",
                step, dE_brute, dE_inc, err);
 
         if (err > TOL)

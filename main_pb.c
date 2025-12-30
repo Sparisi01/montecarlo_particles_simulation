@@ -35,7 +35,7 @@ enum SIMULATION_TYPE
     NONE
 };
 
-const int COULOMB_INTERACTION_ON = 1;
+const int COULOMB_INTERACTION_ON = 0;
 
 /**
  * @brief Compute the radial distribution storing the counting in a bin array "bins_array" of bin size "bin_interval"
@@ -356,6 +356,9 @@ double verlet_pb_metropolis_step_one_particle(double energy,
         }
     }
 
+    // NOTE: I have tested with and without this line of code and we move from an
+    // autocorrelation af 12 steps with to 145 without
+
     for (int i = n_particles - 1; i > 0; i--)
     {
         // Swap two random indexes in the sub array 0,1,...,i
@@ -422,7 +425,8 @@ double verlet_pb_metropolis_step_one_particle(double energy,
 
             energy += dE;
 
-            ewd_update_S_K(i, pos_array, old_position, charge_array, box_size);
+            if (COULOMB_INTERACTION_ON)
+                ewd_update_S_K(i, pos_array, old_position, charge_array, box_size);
 
             for (int j = 0; j < space_dim; j++)
             {
@@ -476,15 +480,20 @@ void print_simulation_information(const int n_particles,
 
 int main(int argc, char const *argv[])
 {
+    if (COULOMB_INTERACTION_ON)
+        printf("COULOMB INTERACTION ON\n");
+    else
+        printf("COULOMB INTERACTION OFF\n");
+
     /**
      * SIMULATION PARAMETERS
      * Those are the 3 parameters that actually control the simulation.
      * lattice_type & n_cell_per_row define the number of particles,
      * density and number of particles define the box size.
      */
-    const int lattice_type = 4;    // Lattice type 1 CC, 2 BCC, 4 FCC
-    const int n_cell_per_row = 10; // Number of lattice cell per row
-    const double density = 0.1;
+    const int lattice_type = 4;   // Lattice type 1 CC, 2 BCC, 4 FCC
+    const int n_cell_per_row = 6; // Number of lattice cell per row
+    const double density = 1;
 
     const int space_dimension = 3; // 1D - 2D - 3D - ... - nD
 
@@ -554,10 +563,10 @@ int main(int argc, char const *argv[])
     long metropolis_accepted_steps = 0;
     double energy = 0;
 
-    const int restart_from_checkpoint = 0;
+    const int restart_from_checkpoint = 1;
     if (restart_from_checkpoint)
     {
-        const char *check_point_file_name = "./state_saves_binaries/checkpoint_T0.7.bin";
+        const char *check_point_file_name = "./state_saves_binaries/checkpoint_T1.500.bin";
         load_checkpoint_binary(check_point_file_name, pos_array, n_particles, space_dimension, &energy);
     }
     else
@@ -597,7 +606,7 @@ int main(int argc, char const *argv[])
      * we how which std it has, sqrt(N).
      */
     const double verlet_max_neightbor_distance = 2.5 * SIGMA; // Same used in Lennar Jones
-    const double skin = 1 * verlet_max_neightbor_distance;
+    const double skin = 0.5 * verlet_max_neightbor_distance;
 
     double *old_pos_array = (double *)malloc(total_vel_pos_array_size * sizeof(double));
     if (old_pos_array == NULL)
@@ -636,7 +645,7 @@ int main(int argc, char const *argv[])
     print_simulation_information(n_particles, box_size, verlet_list, energy, pos_array, charge_array, space_dimension, density);
 
     // Choose type of simulation
-    enum SIMULATION_TYPE simulation_type = SINGLE_T;
+    enum SIMULATION_TYPE simulation_type = INCREASING_T;
 
     switch (simulation_type)
     {
@@ -675,12 +684,12 @@ INCREASE_TEMPERATURE_SIMULATION:
      * NOTE: The total number of steps is (N_step_thermalization + N_step_data) * N_temperatures
      */
 
-    const double temperature_min = 0.6;
-    const double temperature_max = 0.75;
+    const double temperature_min = 1.50;
+    const double temperature_max = 1.60;
     const int N_temperatures = 5;
     const double dT = (temperature_max - temperature_min) / N_temperatures;
 
-    const int N_step_thermalization = 10000;
+    const int N_step_thermalization = 5000;
     const int N_step_data = 50000;
     const int N_step_tot = N_step_thermalization + N_step_data;
 
@@ -767,12 +776,17 @@ SINGLE_TEMPERATURE_SIMULATION:
      * for hight distances the density is constant.
      * - (density = 0.7, T = 1.1) liquid behaviour can be observed. g(r) has a few shallow peaks.
      * - (density = 1.3, T = 1.1) solid behaviour can be observed. g(r) has a lot of strong peaks.
+     *
+     * Only LJ varing T fixes rho
+     * - (density = 1, N = 864, T = 1)  Solid
+     * - (density = 1, N = 864, T = 1.5)  Solid
+     * - (density = 1, N = 864, T = 2)  Liquid
      */
 
     const int N_data_steps = 10000;
     const int N_thermalization_steps = 5000;
     const int N_metropolis_steps = N_thermalization_steps + N_data_steps;
-    double temperature = 8;
+    double temperature = 2;
 
     printf(" Temperature : %.3f\n", temperature);
     printf("-------------------------------------\n");
@@ -817,10 +831,6 @@ SINGLE_TEMPERATURE_SIMULATION:
             radial_distribution(pos_array, n_particles, space_dimension, box_size, bin_counting_array, N_bins, bin_interval);
         }
 
-        /**
-         * Save energy every 10 steps to reduce time correlation, one whould do a better analysis than this. I expect the correlation to be
-         * much highter than 10 but this requires further investigations
-         */
         if (i > 0)
         {
             fprintf(energy_file, "%lf\n", energy);

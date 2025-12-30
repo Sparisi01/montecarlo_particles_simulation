@@ -26,6 +26,12 @@ double array_mean(const double *array, unsigned int array_dim)
         LOG_FATAL("Array null pointer");
     }
 
+    if (array_dim == 0)
+    {
+        LOG_WARNING("array_dim equal to 0, 0 returned");
+        return 0;
+    }
+
     double mean = 0;
     for (size_t i = 0; i < array_dim; i++)
     {
@@ -42,6 +48,12 @@ double array_mean2(const double *array, unsigned int array_dim)
     if (!pointerValidator(array))
     {
         LOG_FATAL("Array null pointer");
+    }
+
+    if (array_dim == 0)
+    {
+        LOG_WARNING("array_dim equal to 0, 0 returned");
+        return 0;
     }
 
     double mean2 = 0;
@@ -62,6 +74,12 @@ double array_var(const double *array, unsigned int array_dim)
         LOG_FATAL("Array null pointer");
     }
 
+    if (array_dim == 0)
+    {
+        LOG_WARNING("array_dim equal to 0, 0 returned");
+        return 0;
+    }
+
     return array_mean2(array, array_dim) - array_mean(array, array_dim) * array_mean(array, array_dim);
 }
 
@@ -73,6 +91,12 @@ void array_const_mult(double *array, unsigned int array_dim, double c)
     if (!pointerValidator(array))
     {
         LOG_FATAL("Array null pointer");
+    }
+
+    if (array_dim == 0)
+    {
+        LOG_WARNING("array_dim equal to 0, 0 returned");
+        return;
     }
 
     for (size_t i = 0; i < array_dim; i++)
@@ -94,6 +118,12 @@ double array_dot_product(const double *array_1, const double *array_2, unsigned 
     if (!pointerValidator(array_2))
     {
         LOG_FATAL("Array_2 null pointer");
+    }
+
+    if (array_dim == 0)
+    {
+        LOG_WARNING("array_dim equal to 0, 0 returned");
+        return 0;
     }
 
     double sum = 0;
