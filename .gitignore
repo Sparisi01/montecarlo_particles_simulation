@@ -9,7 +9,6 @@ __pycache__/
 *.cu
 *.gnuplot
 cuda/
-output/
 images/
 
 # Distribution / packaging
