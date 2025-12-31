@@ -25,7 +25,7 @@ enum SIMULATION_TYPE
     NONE
 };
 
-const int COULOMB_INTERACTION_ON = 0;
+const int COULOMB_INTERACTION_ON = 1;
 
 /**
  * @brief Compute the radial distribution storing the counting in a bin array "bins_array" of bin size "bin_interval"
@@ -553,7 +553,7 @@ int main(int argc, char const *argv[])
     long metropolis_accepted_steps = 0;
     double energy = 0;
 
-    const int restart_from_checkpoint = 1;
+    const int restart_from_checkpoint = 0;
     if (restart_from_checkpoint)
     {
         const char *check_point_file_name = "./state_saves_binaries/checkpoint_T1.500.bin";
@@ -616,7 +616,8 @@ int main(int argc, char const *argv[])
     // Optimize Ewald Summation Parameters
     if (COULOMB_INTERACTION_ON)
     {
-        optimizeParameter(1, box_size, charge_array, n_particles);
+        // NOTE
+        optimizeParameter(1e-8, box_size, charge_array, n_particles);
         if (REAL_CUTOFF > verlet_max_neightbor_distance)
             LOG_WARNING("REAL_CUTOFF greater than verlet_max_neightbor_distance.\n"
                         "There is the possibility that some ral space coulomb interactions may be excluded by the verlet list.\n"
@@ -630,6 +631,8 @@ int main(int argc, char const *argv[])
     {
         energy = pb_verlet_compute_total_energy(pos_array, charge_array, verlet_list, n_particles, space_dimension, box_size, lennar_jones_epsilon, lennar_jones_sigma);
     }
+
+    test_ewald_convergence(pos_array, charge_array, n_particles, box_size, 1);
 
     // Print a lot of informations about the simulation in order to spot possible errors at the start of simulation
     print_simulation_information(n_particles, box_size, verlet_list, energy, pos_array, charge_array, space_dimension, density);

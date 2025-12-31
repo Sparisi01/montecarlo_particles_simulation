@@ -283,7 +283,7 @@ void metropolis_step(double *energy_array, double *pos_array, double *charge_arr
 
 void init_system(double *pos_array, double *charge_array, double *mass_array)
 {
-    for (size_t i = 0; i < N; i++)
+    for (size_t i = 0; i < n_particles; i++)
     {
         for (size_t j = 0; j < SPACE_DIM; j++)
         {
@@ -371,7 +371,7 @@ int main(int argc, char const *argv[])
         exit(EXIT_FAILURE);
     }
 
-    int total_vel_pos_array_size = N * SPACE_DIM;
+    int total_vel_pos_array_size = n_particles * SPACE_DIM;
 
     //-------------------------------------------
     // Positions and velocities are store in an array of size (N * SPACE_DIM) where
@@ -386,15 +386,15 @@ int main(int argc, char const *argv[])
     if (vel_array == NULL)
         exit(EXIT_FAILURE);
 
-    double *charge_array = (double *)malloc(N * sizeof(double));
+    double *charge_array = (double *)malloc(n_particles * sizeof(double));
     if (charge_array == NULL)
         exit(EXIT_FAILURE);
 
-    double *mass_array = (double *)malloc(N * sizeof(double));
+    double *mass_array = (double *)malloc(n_particles * sizeof(double));
     if (mass_array == NULL)
         exit(EXIT_FAILURE);
 
-    double *energy_array = (double *)malloc(N * sizeof(double));
+    double *energy_array = (double *)malloc(n_particles * sizeof(double));
     if (energy_array == NULL)
         exit(EXIT_FAILURE);
 
@@ -419,13 +419,13 @@ int main(int argc, char const *argv[])
     init_system(pos_array, charge_array, mass_array);
 
     // Init energy array
-    for (size_t i = 0; i < N; i++)
+    for (size_t i = 0; i < n_particles; i++)
     {
-        energy_array[i] = compute_one_particle_energy(i, pos_array, charge_array, N, SPACE_DIM);
+        energy_array[i] = compute_one_particle_energy(i, pos_array, charge_array, n_particles, SPACE_DIM);
     }
 
-    save_particle_state(start_position_file, pos_array, charge_array, N, SPACE_DIM);
-    printf("Start energy: %f\n", array_to_total_energy(energy_array, N));
+    save_particle_state(start_position_file, pos_array, charge_array, n_particles, SPACE_DIM);
+    printf("Start energy: %f\n", array_to_total_energy(energy_array, n_particles));
 
     //----------------------------------
     // START Evaluate the execution time
@@ -436,7 +436,7 @@ int main(int argc, char const *argv[])
 
     for (size_t i = 0; i < N_METROPOLIS_STEPS; i++)
     {
-        metropolis_step(energy_array, pos_array, charge_array, STEP_SIZE, TEMPERATURE, N, SPACE_DIM, &accepted_steps);
+        metropolis_step(energy_array, pos_array, charge_array, STEP_SIZE, TEMPERATURE, n_particles, SPACE_DIM, &accepted_steps);
 
         // Progress Bar
         if (i % PRINT_INTERVAL == 0)
@@ -446,11 +446,11 @@ int main(int argc, char const *argv[])
         }
 
         // Init energy array
-        for (size_t i = 0; i < N; i++)
+        for (size_t i = 0; i < n_particles; i++)
         {
-            energy_array[i] = compute_one_particle_energy(i, pos_array, charge_array, N, SPACE_DIM);
+            energy_array[i] = compute_one_particle_energy(i, pos_array, charge_array, n_particles, SPACE_DIM);
         }
-        fprintf(energy_file, "%lf\n", array_to_total_energy(energy_array, N));
+        fprintf(energy_file, "%lf\n", array_to_total_energy(energy_array, n_particles));
     }
 
     // Clear terminal
@@ -463,11 +463,11 @@ int main(int argc, char const *argv[])
     // END total time evaliation
     //----------------------------------
 
-    printf("Accepted step: %lf\n", accepted_steps / ((double)N_METROPOLIS_STEPS * N));
-    printf("Average pair distance: %lf\n", compute_average_pair_distance(pos_array, charge_array, N, SPACE_DIM));
-    printf("End energy: %f\n", array_to_total_energy(energy_array, N));
+    printf("Accepted step: %lf\n", accepted_steps / ((double)N_METROPOLIS_STEPS * n_particles));
+    printf("Average pair distance: %lf\n", compute_average_pair_distance(pos_array, charge_array, n_particles, SPACE_DIM));
+    printf("End energy: %f\n", array_to_total_energy(energy_array, n_particles));
 
-    save_particle_state(end_position_file, pos_array, charge_array, N, SPACE_DIM);
+    save_particle_state(end_position_file, pos_array, charge_array, n_particles, SPACE_DIM);
 
     free(pos_array);
     free(vel_array);

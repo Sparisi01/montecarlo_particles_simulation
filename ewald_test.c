@@ -4,26 +4,26 @@
 #include <math.h>
 
 #include "src/ewald.c"
-#include "src/constants.c"
 
 #define TOL 1e-10
 
-int main(void)
+int delta_test()
 {
+    printf("\n\n------DELTA TEST------\n");
+
     const int n_particles = 500;
-    const double box_size = 10.0;
+    const double box_size = 1;
     const int total_size = 3 * n_particles;
+
+    ALPHA = 6;
+    REAL_CUTOFF = box_size / 2;
+    REAL_RANGE = 0;
+    RECIPROCAL_RANGE = 6;
 
     double *pos = malloc(total_size * sizeof(double));
     double *pos_new = malloc(total_size * sizeof(double));
     double *charge = malloc(n_particles * sizeof(double));
 
-    if (!pos || !pos_new || !charge)
-        exit(EXIT_FAILURE);
-
-    srand48(12345);
-
-    /* ------------------ init system ------------------ */
     for (int i = 0; i < n_particles; i++)
     {
         pos[3 * i + 0] = drand48() * box_size;
@@ -33,18 +33,13 @@ int main(void)
         charge[i] = (i % 2 == 0) ? 1.0 : -1.0;
     }
 
-    optimizeParameter(5e-4, box_size, charge, n_particles);
-
-    /* ------------------ reference energy ------------------ */
     double E0 = ewd_long_energy(
         pos, charge, n_particles, box_size);
 
     printf("\nE0 = %.15e\n", E0);
 
-    /* ------------------ init S_k on OLD config ------------------ */
     ewd_init_S_K(pos, charge, n_particles, box_size);
 
-    /* ------------------ multiple random moves ------------------ */
     for (int step = 0; step < 20; step++)
     {
         memcpy(pos_new, pos, total_size * sizeof(double));
@@ -59,13 +54,11 @@ int main(void)
         pos_new[3 * i + 1] += dy;
         pos_new[3 * i + 2] += dz;
 
-        /* --- brute-force delta --- */
         double E1 = ewd_long_energy(
             pos_new, charge, n_particles, box_size);
 
         double dE_brute = E1 - E0;
 
-        /* --- incremental delta --- */
         double dE_inc = ewd_delta_long_energy(
             i, pos_new, pos, charge, box_size);
 
@@ -76,21 +69,125 @@ int main(void)
 
         if (err > TOL)
         {
-            printf("ERROR above tolerance!\n");
+            LOG_FATAL("ERROR above tolerance!\n");
             return EXIT_FAILURE;
         }
 
-        /* --- accept move, update everything --- */
         ewd_update_S_K(i, pos_new, pos, charge, box_size);
         memcpy(pos, pos_new, total_size * sizeof(double));
         E0 = E1;
     }
 
-    printf("\nALL TESTS PASSED\n");
-
     free(pos);
     free(pos_new);
     free(charge);
 
+    return 0;
+}
+
+void convergence_to_same_total_energy()
+{
+
+    printf("\n\n------CONVERGENCE TEST------\n");
+
+    const double TOLLERANCE = 1e-6;
+
+    const int n_particles = 100;
+    const double box_size = 1;
+    const int total_size = 3 * n_particles;
+
+    double *pos = malloc(total_size * sizeof(double));
+    double *pos_new = malloc(total_size * sizeof(double));
+    double *charge = malloc(n_particles * sizeof(double));
+
+    srand48(12345);
+
+    for (int i = 0; i < n_particles; i++)
+    {
+        pos[3 * i + 0] = drand48() * box_size;
+        pos[3 * i + 1] = drand48() * box_size;
+        pos[3 * i + 2] = drand48() * box_size;
+
+        charge[i] = (i % 2 == 0) ? 1.0 : -1.0;
+    }
+
+    double old_en = 0;
+    for (size_t i = 2; i < 15; i++)
+    {
+        REAL_RANGE = 5;
+        RECIPROCAL_RANGE = 20;
+        REAL_CUTOFF = 5;
+        ALPHA = i;
+
+        double self_en = ewd_self_energy(charge, n_particles) / n_particles;
+        double long_en = ewd_long_energy(pos, charge, n_particles, box_size) / n_particles;
+        double short_en = ewd_short_energy(pos, charge, n_particles, box_size) / n_particles;
+        double tot_en = long_en + short_en - self_en;
+
+        printf("Alpha: %.f, Short: %.5E, Long: %.5E, Self: %.5E, Tot: %.10E\n", ALPHA, short_en, long_en, self_en, tot_en);
+
+        if (i > 4 && fabs(old_en - tot_en) / tot_en > TOLLERANCE)
+        {
+            LOG_FATAL("convergence test failed, new energy above tollerance");
+        }
+
+        old_en = tot_en;
+    }
+}
+
+void translate(double *pos, int n_particles, double dx, double dy, double dz, double L)
+{
+    for (int i = 0; i < n_particles; i++)
+    {
+        pos[3 * i + 0] = fmod(pos[3 * i + 0] + dx + L, L);
+        pos[3 * i + 1] = fmod(pos[3 * i + 1] + dy + L, L);
+        pos[3 * i + 2] = fmod(pos[3 * i + 2] + dz + L, L);
+    }
+}
+
+// Check energy invariance under space-translation
+void test_translation()
+{
+
+    printf("\n\n------TRANSLATION TEST------\n");
+
+    EWD_OPTIMIZED = 1;
+    const int n_particles = 500;
+    const double box_size = 1;
+    const int total_size = 3 * n_particles;
+
+    ALPHA = 6;
+    REAL_CUTOFF = box_size / 2;
+    REAL_RANGE = 0;
+    RECIPROCAL_RANGE = 8;
+
+    double *pos = malloc(total_size * sizeof(double));
+    double *pos_new = malloc(total_size * sizeof(double));
+    double *charge = malloc(n_particles * sizeof(double));
+
+    for (int i = 0; i < n_particles; i++)
+    {
+        pos[3 * i + 0] = drand48() * box_size;
+        pos[3 * i + 1] = drand48() * box_size;
+        pos[3 * i + 2] = drand48() * box_size;
+
+        charge[i] = (i % 2 == 0) ? 1.0 : -1.0;
+    }
+
+    double E1 = ewd_total_energy(pos, charge, n_particles, box_size);
+
+    translate(pos, n_particles, 0.123, 0.456, 0.321, box_size);
+
+    double E2 = ewd_total_energy(pos, charge, n_particles, box_size);
+
+    printf("ΔE = %.3e\n", fabs(E1 - E2));
+}
+
+int main()
+{
+    convergence_to_same_total_energy();
+    test_translation();
+    delta_test();
+    printf("\nALL TESTS PASSED\n");
     return 0;
 }

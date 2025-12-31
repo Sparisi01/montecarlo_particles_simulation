@@ -31,12 +31,13 @@
 
 #define EWD_EPSILON 1e-8
 
-static double RECIPROCAL_RANGE;
-static double REAL_CUTOFF;
-static double ALPHA;
-static int EWD_OPTIMIZED = 0;
+int RECIPROCAL_RANGE;
+int REAL_RANGE = 0;
+double REAL_CUTOFF;
+double ALPHA;
+int EWD_OPTIMIZED = 0;
 
-static double complex *S_K = NULL;
+double complex *S_K = NULL;
 
 static const char EWD_ERROR_MESSAGE_CUTOFF[] =
     "REAL_CUTOFF exceeds box_size/2, violating the first-image convention "
@@ -142,12 +143,12 @@ void optimizeParameter(double error, double box_size, const double *charge_array
     LOG_INFO("Ewald parameters succesfully optimized:\n"
              "- ALPHA = %.5E\n"
              "- REAL_CUTOFF = %.5E\n"
-             "- RECIPROCAL_RANGE = %.5E",
+             "- RECIPROCAL_RANGE = %d",
              ALPHA, REAL_CUTOFF, RECIPROCAL_RANGE);
 
     if (REAL_CUTOFF > box_size / 2)
     {
-        LOG_FATAL("%s", EWD_ERROR_MESSAGE_CUTOFF);
+        LOG_WARNING("%s", EWD_ERROR_MESSAGE_CUTOFF);
     }
 
     EWD_OPTIMIZED = 1;
@@ -192,11 +193,6 @@ double ewd_self_energy(const double *charge_array, int n_particles)
 double ewd_i_short_energy(int i, const double *pos_array, const double *charge_array, int n_particles, double box_size)
 {
 
-    if (REAL_CUTOFF > box_size / 2)
-    {
-        LOG_FATAL("%s", EWD_ERROR_MESSAGE_CUTOFF);
-    }
-
     double real_space_i_energy = 0;
 
     for (size_t j = 0; j < n_particles; j++)
@@ -215,20 +211,34 @@ double ewd_i_short_energy(int i, const double *pos_array, const double *charge_a
         r_ij_y = pb_minimum_image(r_ij_y, box_size);
         r_ij_z = pb_minimum_image(r_ij_z, box_size);
 
-        const double r_ij_mod2 = r_ij_x * r_ij_x + r_ij_y * r_ij_y + r_ij_z * r_ij_z;
-
-        // In first image convention _CUTOFF must be less than L/2
-        if (r_ij_mod2 > REAL_CUTOFF * REAL_CUTOFF)
-            continue;
-
-        if (r_ij_mod2 < EWD_EPSILON)
+        for (int n_x = -REAL_RANGE; n_x <= REAL_RANGE; n_x++)
         {
-            LOG_WARNING("%s", EWD_WARNING_OVERLAP_PARTICLE);
+            for (int n_y = -REAL_RANGE; n_y <= REAL_RANGE; n_y++)
+            {
+                for (int n_z = -REAL_RANGE; n_z <= REAL_RANGE; n_z++)
+                {
+
+                    double r_ij_x_n = r_ij_x + n_x * box_size;
+                    double r_ij_y_n = r_ij_y + n_y * box_size;
+                    double r_ij_z_n = r_ij_z + n_z * box_size;
+
+                    const double r_ij_mod2 = r_ij_x_n * r_ij_x_n + r_ij_y_n * r_ij_y_n + r_ij_z_n * r_ij_z_n;
+
+                    // In first image convention _CUTOFF must be less than L/2
+                    if (r_ij_mod2 > REAL_CUTOFF * REAL_CUTOFF)
+                        continue;
+
+                    if (r_ij_mod2 < EWD_EPSILON)
+                    {
+                        LOG_WARNING("%s", EWD_WARNING_OVERLAP_PARTICLE);
+                    }
+
+                    const double r_ij_mod = sqrt(r_ij_mod2);
+
+                    real_space_i_energy += (charge_array[i] * charge_array[j]) * erfc(ALPHA * r_ij_mod) / r_ij_mod;
+                }
+            }
         }
-
-        const double r_ij_mod = sqrt(r_ij_mod2);
-
-        real_space_i_energy += (charge_array[i] * charge_array[j]) * erfc(ALPHA * r_ij_mod) / r_ij_mod;
     }
 
     return real_space_i_energy;
@@ -244,12 +254,6 @@ double ewd_i_short_energy(int i, const double *pos_array, const double *charge_a
  */
 double ewd_verlet_i_short_energy(int i, const double *pos_array, const double *charge_array, const IndexesList_t *vl, int n_particles, double box_size)
 {
-
-    if (REAL_CUTOFF > box_size / 2)
-    {
-        LOG_FATAL("%s", EWD_ERROR_MESSAGE_CUTOFF);
-    }
-
     double real_space_i_energy = 0;
 
     for (size_t v = 0; v < vl[i].count; v++)
@@ -417,20 +421,12 @@ double ewd_total_energy(const double *pos_array, const double *charge_array, int
         LOG_WARNING("%s", EWD_WARNING_MESSAGE_NO_OPTIMIZATION_PERFORMED);
     }
 
-    static double self_energy = 0;
-
     // O(N^2)
     double short_range_energy = ewd_short_energy(pos_array, charge_array, n_particles, box_size);
     // O(N)
     double long_range_energy = ewd_long_energy(pos_array, charge_array, n_particles, box_size);
-
     // O(1)
-    // If the charge of the particle does not change the self_energy is constant so it has to be computed only once,
-    // unless all particles are charge neutral self energy is always greater than 0
-    if (self_energy == 0)
-    {
-        self_energy = ewd_self_energy(charge_array, n_particles);
-    }
+    double self_energy = ewd_self_energy(charge_array, n_particles);
 
     return (short_range_energy + long_range_energy - self_energy);
 }
@@ -449,20 +445,13 @@ double ewd_verlet_total_energy(const double *pos_array, const double *charge_arr
         LOG_WARNING("%s", EWD_WARNING_MESSAGE_NO_OPTIMIZATION_PERFORMED);
     }
 
-    static double self_energy = 0;
-
     // O(N)
     double short_range_energy = ewd_verlet_short_energy(pos_array, charge_array, vl, n_particles, box_size);
     // O(N)
     double long_range_energy = ewd_long_energy(pos_array, charge_array, n_particles, box_size);
 
     // O(1)
-    // If the charge of the particle does not change the self_energy is constant so it has to be computed only once,
-    // unless all particles are charge neutral self energy is always greater than 0
-    if (self_energy == 0)
-    {
-        self_energy = ewd_self_energy(charge_array, n_particles);
-    }
+    double self_energy = ewd_self_energy(charge_array, n_particles);
 
     return (short_range_energy + long_range_energy - self_energy);
 }
