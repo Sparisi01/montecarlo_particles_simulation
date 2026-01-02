@@ -106,7 +106,7 @@ double pb_compute_total_energy(const double *pos_array,
     {
         if (space_dim != 3)
         {
-            fprintf(stderr, "Error: Ewald Summation require a space dimension of 3\n");
+            LOG_FATAL("Ewald Summation requires a space dimension of 3\n");
         }
         total_energy += ewd_total_energy(pos_array, charge_array, n_particles, box_size);
     }
@@ -134,7 +134,7 @@ double pb_verlet_compute_total_energy(const double *pos_array,
     {
         if (space_dim != 3)
         {
-            fprintf(stderr, "Error: Ewald Summation require a space dimension of 3\n");
+            LOG_FATAL("Ewald Summation requires a space dimension of 3\n");
         }
         total_energy += ewd_verlet_total_energy(pos_array, charge_array, verlet_list, n_particles, box_size);
     }
@@ -436,44 +436,56 @@ double verlet_pb_metropolis_step_one_particle(double energy,
     return energy;
 }
 
-void print_simulation_information(const int n_particles,
-                                  const double box_size,
-                                  IndexesList_t *verlet_list,
-                                  double energy,
-                                  double *pos_array,
-                                  double *charge_array,
-                                  const int space_dimension,
-                                  double density)
+int test_same_energy_verlet_and_not_verlet(const int n_particles,
+                                           const double box_size,
+                                           IndexesList_t *verlet_list,
+                                           double *pos_array,
+                                           double *charge_array,
+                                           const int space_dimension,
+                                           double epsilon,
+                                           double sigma)
 {
-    printf("\n");
-    printf("=====================================\n");
-    printf("        STARTING SIMULATION\n");
-    printf("=====================================\n");
 
-    printf(" N_particles : %d\n", n_particles);
-    printf(" Box_size    : %.3f\n", box_size);
-    printf(" Density     : %.3f\n", density);
+    double TOLLERANCE = 1e-6;
+    double no_verlet_energy = pb_compute_total_energy(pos_array, charge_array, n_particles, space_dimension, box_size, epsilon, sigma);
+    double verlet_energy = pb_verlet_compute_total_energy(pos_array, charge_array, verlet_list, n_particles, space_dimension, box_size, epsilon, sigma);
+    double relative_error = fabs(verlet_energy - no_verlet_energy) / fabs(verlet_energy);
+    int passed = relative_error < TOLLERANCE;
 
-    printf("-------------------------------------\n");
-    printf(" Max verlet count: %d\n", get_max_verlet_count(verlet_list, n_particles));
-    printf("-------------------------------------\n");
+    LOG_TEST("same energy estimation with and without verlet list\n");
+    fprintf(stderr, "Tollerance             : %5E\n"
+                    "Relative difference    : %5E\n\n",
+            TOLLERANCE, relative_error);
+    if (passed == 1)
+    {
+        fprintf(stderr, "Test status: " COLOR_GREEN STYLE_BOLD "PASSED" COLOR_RESET STYLE_RESET "\n");
+    }
+    else
+    {
+        fprintf(stderr, COLOR_RED STYLE_BOLD "FAILED" COLOR_RESET STYLE_RESET "\n");
+        exit(EXIT_FAILURE);
+    }
 
-    printf(" Start energy      : %.6e\n", energy);
-
-    double no_verlet_energy = pb_compute_total_energy(pos_array, charge_array, n_particles, space_dimension, box_size, 1, 1);
-    assert(fabs(energy - no_verlet_energy) / fabs(energy) < 1e-3);
-
-    printf("-------------------------------------\n");
+    return passed;
 }
 
 // ------------------------------------------------------------------
 
 int main(int argc, char const *argv[])
 {
+
+    printf("\n");
+    printf("=====================================\n");
+    printf(STYLE_BOLD "        STARTING SIMULATION\n" STYLE_RESET);
+    printf("=====================================\n");
+
+    printf("Coluomb interaction: ");
     if (COULOMB_INTERACTION_ON)
-        printf("COULOMB INTERACTION ON\n");
+        printf(STYLE_BOLD "ON\n" STYLE_RESET);
     else
-        printf("COULOMB INTERACTION OFF\n");
+        printf(STYLE_BOLD "OFF\n" STYLE_RESET);
+
+    printf("-------------------------------------\n");
 
     /**
      * SIMULATION PARAMETERS
@@ -493,12 +505,17 @@ int main(int argc, char const *argv[])
     const int n_particles = pow(n_cell_per_row, 3) * lattice_type;
     const double box_size = pow(n_particles / density, 1.0 / space_dimension);
 
+    printf("N_particles : %d\n", n_particles);
+    printf("Box_size    : %.3f\n", box_size);
+    printf("Density     : %.3f\n", density);
+
     const double space_step = 0.1; // Max space step in metropolis update, should be << box_size
 
     if (space_step > box_size * 0.05)
     {
-        fprintf(stderr, "WARNING: space_step could be too hight for the current box_size.\n");
-        fprintf(stderr, "Space_step = %lf, Box_size = %lf\n", space_step, box_size);
+        LOG_WARNING("space_step could be too hight for the current box_size.\n"
+                    "Space_step = %lf, Box_size = %lf\n",
+                    space_step, box_size);
     }
 
     const double lennar_jones_epsilon = 1;
@@ -546,8 +563,7 @@ int main(int argc, char const *argv[])
     double *bin_counting_array = (double *)calloc(N_bins, sizeof(double)); // Bins array
     if (!bin_counting_array)
     {
-        perror("Error allocating counting array");
-        exit(EXIT_FAILURE);
+        LOG_FATAL("Error allocating counting array");
     }
 
     long metropolis_accepted_steps = 0;
@@ -595,8 +611,11 @@ int main(int argc, char const *argv[])
      * I think one can do that by approximating the metropolis step as a random walk and using the fact that
      * we how which std it has, sqrt(N).
      */
-    const double verlet_max_neightbor_distance = 2.5 * SIGMA; // Same used in Lennar Jones
-    const double skin = 0.5 * verlet_max_neightbor_distance;
+    const double VERLET_MAX_NEIGHTBOR_DISTANCE = 3.7 * SIGMA; // Same used in Lennar Jones
+    const double SKIN = 0.5 * VERLET_MAX_NEIGHTBOR_DISTANCE;
+
+    // Use the same r_c for verlet list and lennar jones
+    LENNAR_JONES_CUT_OFF_IN_SIGMA_UNIT = VERLET_MAX_NEIGHTBOR_DISTANCE;
 
     double *old_pos_array = (double *)malloc(total_vel_pos_array_size * sizeof(double));
     if (old_pos_array == NULL)
@@ -611,17 +630,38 @@ int main(int argc, char const *argv[])
     }
 
     // Build verlet list
-    verlet_pb_build_list(pos_array, old_pos_array, verlet_list, n_particles, space_dimension, box_size, verlet_max_neightbor_distance, skin);
+    verlet_pb_build_list(pos_array, old_pos_array, verlet_list, n_particles, space_dimension, box_size, VERLET_MAX_NEIGHTBOR_DISTANCE, SKIN);
+
+    printf("-------------------------------------\n");
+    printf("VERLET_MAX_NEIGHTBOR_DISTANCE   : %.2f\n", VERLET_MAX_NEIGHTBOR_DISTANCE);
+    printf("Max verlet count                : %d\n", get_max_verlet_count(verlet_list, n_particles));
+    printf("-------------------------------------\n");
 
     // Optimize Ewald Summation Parameters
     if (COULOMB_INTERACTION_ON)
     {
         // NOTE
-        optimizeParameter(1e-8, box_size, charge_array, n_particles);
-        if (REAL_CUTOFF > verlet_max_neightbor_distance)
-            LOG_WARNING("REAL_CUTOFF greater than verlet_max_neightbor_distance.\n"
-                        "There is the possibility that some ral space coulomb interactions may be excluded by the verlet list.\n"
-                        "Consider increasing verlet_max_neightbor_distance or decrease the REAL_CUTOFF by optimizing ewald with using a larger error.");
+        optimizeParameter(1e-2, box_size, charge_array, n_particles);
+
+        ewd_print_parameters();
+        printf("-------------------------------------\n");
+
+        if (REAL_CUTOFF > VERLET_MAX_NEIGHTBOR_DISTANCE)
+        {
+            LOG_FATAL("REAL_CUTOFF greater than VERLET_MAX_NEIGHTBOR_DISTANCE.\n"
+                      "Some real space coulomb interactions are excluded by the verlet list being to strict.\n"
+                      "Increase VERLET_MAX_NEIGHTBOR_DISTANCE or decrease REAL_CUTOFF by optimizing Ewald with using a larger error.");
+        }
+        else
+        {
+
+            // Computationally is the same but is more precise
+            REAL_CUTOFF = VERLET_MAX_NEIGHTBOR_DISTANCE;
+
+            LOG_INFO("REAL_CUTOFF less than VERLET_MAX_NEIGHTBOR_DISTANCE.\n"
+                     "REAL_CUTOFF set equal to VERLET_MAX_NEIGHTBOR_DISTANCE to increase accuracy.");
+            printf("-------------------------------------\n");
+        }
     }
 
     // Initialization of S(K) vector in the starting position
@@ -632,10 +672,21 @@ int main(int argc, char const *argv[])
         energy = pb_verlet_compute_total_energy(pos_array, charge_array, verlet_list, n_particles, space_dimension, box_size, lennar_jones_epsilon, lennar_jones_sigma);
     }
 
-    test_ewald_convergence(pos_array, charge_array, n_particles, box_size, 1);
+    printf("Start energy      : %.6e\n", energy);
+    printf("-------------------------------------\n");
 
-    // Print a lot of informations about the simulation in order to spot possible errors at the start of simulation
-    print_simulation_information(n_particles, box_size, verlet_list, energy, pos_array, charge_array, space_dimension, density);
+    test_same_energy_verlet_and_not_verlet(n_particles, box_size, verlet_list, pos_array, charge_array, space_dimension, EPSILON, SIGMA);
+    printf("-------------------------------------\n");
+
+    /** This test measure the difference in ewald energy estimation incresing the
+     *  RECIPROCAL_RANGE and REAL_RANGE by one. The real part differenc should be in the
+     * order of the choosed error. To get a smaller difference increase REAL_CUT_OFF (remember to increase
+     * verlet_max_neightbor_distance too).
+     *
+     * NOTE: right now I am imposing a relative error of 1% on long + short ewald energy,
+     * I am not considering the self one because it does not count for metropolis being constant.
+     */
+    ewd_test_increase_range(pos_array, charge_array, n_particles, box_size, 1e-2);
 
     // Choose type of simulation
     enum SIMULATION_TYPE simulation_type = INCREASING_T;
@@ -676,6 +727,10 @@ INCREASE_TEMPERATURE_SIMULATION:
      *
      * NOTE: The total number of steps is (N_step_thermalization + N_step_data) * N_temperatures
      */
+
+    printf("=====================================\n");
+    printf(STYLE_BOLD "        INCREASING T SIMULATION\n" STYLE_RESET);
+    printf("=====================================\n");
 
     const double temperature_min = 1.50;
     const double temperature_max = 1.60;
@@ -776,6 +831,10 @@ SINGLE_TEMPERATURE_SIMULATION:
      * - (density = 1, N = 864, T = 2)  Liquid
      */
 
+    printf("=====================================\n");
+    printf(STYLE_BOLD "        SINGLE T SIMULATION\n" STYLE_RESET);
+    printf("=====================================\n");
+
     const int N_data_steps = 10000;
     const int N_thermalization_steps = 5000;
     const int N_metropolis_steps = N_thermalization_steps + N_data_steps;
@@ -797,9 +856,9 @@ SINGLE_TEMPERATURE_SIMULATION:
         energy = verlet_pb_metropolis_step_one_particle(energy, pos_array, charge_array, verlet_list, space_step, temperature, n_particles, space_dimension, &metropolis_accepted_steps, box_size, lennar_jones_epsilon, lennar_jones_sigma);
 
         // Check if the verlet list need to be rebuild
-        if (verlet_pb_needs_rebuild(pos_array, old_pos_array, n_particles, space_dimension, box_size, skin))
+        if (verlet_pb_needs_rebuild(pos_array, old_pos_array, n_particles, space_dimension, box_size, SKIN))
         {
-            verlet_pb_build_list(pos_array, old_pos_array, verlet_list, n_particles, space_dimension, box_size, verlet_max_neightbor_distance, skin);
+            verlet_pb_build_list(pos_array, old_pos_array, verlet_list, n_particles, space_dimension, box_size, VERLET_MAX_NEIGHTBOR_DISTANCE, SKIN);
             if (counting_verlet < min_counting_verlet)
             {
                 min_counting_verlet = counting_verlet;

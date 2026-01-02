@@ -32,7 +32,7 @@
 #define EWD_EPSILON 1e-8
 
 int RECIPROCAL_RANGE;
-int REAL_RANGE = 0;
+int REAL_RANGE = 0; // IF 0 we are in first image convention
 double REAL_CUTOFF;
 double ALPHA;
 int EWD_OPTIMIZED = 0;
@@ -61,6 +61,15 @@ static const char EWD_WARNING_MESSAGE_NO_OPTIMIZATION_PERFORMED[] =
     "Ewald parameters has not been optimized.\n"
     "Consider calling \"optimizeParameter\" or set ALPHA, REAL_CUTOFF and RECIPROCAL_RANGE by hand.\n"
     "If you have done it already set EWD_OPTIMIZED to 1 to disable this warning message.";
+
+void ewd_print_parameters()
+{
+    LOG_INFO("Current ewald parameters:\n"
+             "ALPHA = %.5E\n"
+             "REAL_CUTOFF = %.5E\n"
+             "RECIPROCAL_RANGE = %d",
+             ALPHA, REAL_CUTOFF, RECIPROCAL_RANGE);
+}
 
 /**
  * @brief The following three functions perform an optimization of Ewald parameters given
@@ -139,17 +148,6 @@ void optimizeParameter(double error, double box_size, const double *charge_array
 
     double kc = 2 * s * ALPHA;
     RECIPROCAL_RANGE = ceil(kc / (2 * PI / box_size));
-
-    LOG_INFO("Ewald parameters succesfully optimized:\n"
-             "- ALPHA = %.5E\n"
-             "- REAL_CUTOFF = %.5E\n"
-             "- RECIPROCAL_RANGE = %d",
-             ALPHA, REAL_CUTOFF, RECIPROCAL_RANGE);
-
-    if (REAL_CUTOFF > box_size / 2)
-    {
-        LOG_WARNING("%s", EWD_ERROR_MESSAGE_CUTOFF);
-    }
 
     EWD_OPTIMIZED = 1;
 }
@@ -627,6 +625,68 @@ void ewd_init_S_K(const double *pos_array, const double *charge_array, int n_par
     }
 
     ewd_fill_S_K(pos_array, charge_array, n_particles, box_size);
+}
+
+int ewd_test_increase_range(const double *pos_array, const double *charge_array, int n_particles, double box_size, double tollerance)
+{
+
+    double short_range_energy_old = ewd_short_energy(pos_array, charge_array, n_particles, box_size);
+    double long_range_energy_old = ewd_long_energy(pos_array, charge_array, n_particles, box_size);
+    double sum_old = short_range_energy_old + long_range_energy_old;
+
+    RECIPROCAL_RANGE++;
+    REAL_RANGE++;
+    REAL_CUTOFF += box_size / 2;
+
+    double short_range_energy_new = ewd_short_energy(pos_array, charge_array, n_particles, box_size);
+    double long_range_energy_new = ewd_long_energy(pos_array, charge_array, n_particles, box_size);
+    double sum_new = short_range_energy_new + long_range_energy_new;
+
+    RECIPROCAL_RANGE--;
+    REAL_RANGE--;
+    REAL_CUTOFF -= box_size / 2;
+
+    double short_diff = short_range_energy_new - short_range_energy_old;
+    double long_diff = long_range_energy_new - long_range_energy_old;
+    double tot_diff = short_diff + long_diff;
+
+    double rel_error_tot = fabs(tot_diff / sum_old);
+    double rel_error_short = fabs(short_diff / short_range_energy_old);
+    double rel_error_long = fabs(long_diff / long_range_energy_old);
+
+    LOG_TEST("convergence of ewald increasing ranges by 1:\n\n" STYLE_BOLD "CURRENT RANGES\n" STYLE_RESET
+             "Short energy          : %+.6E\n"
+             "Long energy           : %+.6E\n"
+             "Sum energy            : %+.6E\n\n" STYLE_BOLD "CURRENT RANGES + 1\n" STYLE_RESET
+             "Short energy          : %+.6E\n"
+             "Long energy           : %+.6E\n"
+             "Sum energy            : %+.6E\n\n"
+             "Short diff            : %+.6E\n"
+             "Long diff             : %+.6E\n"
+             "Sum diff              : %+.6E\n\n"
+             "Relerr short energy   : %+.6E\n"
+             "Relerr long energy    : %+.6E\n"
+             "Relerr sum energy     : %+.6E\n"
+             "Tollerance            : %+.6E\n",
+             short_range_energy_old, long_range_energy_old, sum_old,
+             short_range_energy_new, long_range_energy_new, sum_new,
+             short_diff, long_diff, tot_diff, rel_error_short, rel_error_long, rel_error_tot, tollerance);
+
+    int passed1 = rel_error_tot < tollerance;
+    int passed2 = rel_error_short < tollerance;
+    int passed3 = rel_error_long < tollerance;
+
+    if (passed1 == 1 && passed2 == 1 && passed3 == 1)
+    {
+        fprintf(stderr, "Test status: " COLOR_GREEN STYLE_BOLD "PASSED" COLOR_RESET STYLE_RESET "\n");
+    }
+    else
+    {
+        fprintf(stderr, "Test status: " COLOR_RED STYLE_BOLD "FAILED" COLOR_RESET STYLE_RESET "\n");
+        exit(EXIT_FAILURE);
+    }
+
+    return passed1 == 1 && passed2 == 1 && passed3 == 1;
 }
 
 #endif

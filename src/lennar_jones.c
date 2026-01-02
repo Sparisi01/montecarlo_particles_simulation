@@ -5,8 +5,8 @@
 #include "verlet_list.c"
 #include "periodic_boundaries.c"
 
-const double LENNAR_JONES_CUT_OFF_IN_SIGMA_UNIT = 2.5;
-const double LENNAR_JONES_LOW_DISTANCE_CUTOFF = 1e-8;
+double LENNAR_JONES_CUT_OFF_IN_SIGMA_UNIT = 2.5;
+double LENNAR_JONES_LOW_DISTANCE_CUTOFF = 1e-8;
 
 /**
  * @brief Compute the lennar jones potential associated with a particle interacting

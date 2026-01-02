@@ -2,7 +2,7 @@
 #define VERLET_LIST_C
 
 // Expected to be density * sphere volume
-#define VERLET_MAX_NEIGHBORS 512
+#define VERLET_MAX_NEIGHBORS 1024
 
 #include <stdlib.h>
 #include <stdio.h>
