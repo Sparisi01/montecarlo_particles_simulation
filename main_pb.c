@@ -25,7 +25,10 @@ enum SIMULATION_TYPE
     NONE
 };
 
-const int COULOMB_INTERACTION_ON = 1;
+// Choose type of simulation
+const enum SIMULATION_TYPE SIMULATION_TYPE = SINGLE_T;
+const double LAMBDA = 1; // For what lambda is see latex paper section "Units"
+const int COULOMB_INTERACTION_ON = 0;
 
 /**
  * @brief Compute the radial distribution storing the counting in a bin array "bins_array" of bin size "bin_interval"
@@ -61,8 +64,8 @@ void radial_distribution(const double *pos_array,
  * @brief Save particles position and charge state in a csv file, easy to read in python for data analysis.
  */
 void save_particle_state_csv(const char *filename,
-                             double *pos_array,
-                             double *charge_array,
+                             const double *pos_array,
+                             const double *charge_array,
                              int n_particles,
                              int space_dim)
 {
@@ -108,7 +111,7 @@ double pb_compute_total_energy(const double *pos_array,
         {
             LOG_FATAL("Ewald Summation requires a space dimension of 3\n");
         }
-        total_energy += ewd_total_energy(pos_array, charge_array, n_particles, box_size);
+        total_energy += LAMBDA * ewd_total_energy(pos_array, charge_array, n_particles, box_size);
     }
 
     return total_energy;
@@ -136,7 +139,7 @@ double pb_verlet_compute_total_energy(const double *pos_array,
         {
             LOG_FATAL("Ewald Summation requires a space dimension of 3\n");
         }
-        total_energy += ewd_verlet_total_energy(pos_array, charge_array, verlet_list, n_particles, box_size);
+        total_energy += LAMBDA * ewd_verlet_total_energy(pos_array, charge_array, verlet_list, n_particles, box_size);
     }
 
     return total_energy;
@@ -245,6 +248,14 @@ void init_system(double *pos_array,
 
         mass_array[i] = 1;
     }
+}
+
+void add_imperfections(int n_imperfections, double *pos_array, double *charge_array, int *n_particles)
+{
+    /** Mischia l'array di particelle e dopo riduci n_particle di n_imperfections.
+     *  In questo modo il risultato è quello di aver rimosso dal reticolo n particelle casuali
+     *  Possibile soluzione al sovrariscaldamento dei reticoli
+     */
 }
 
 // This function perform an update of all the system at once, hard to get good acceptance rate for stable configurations.
@@ -436,33 +447,38 @@ double verlet_pb_metropolis_step_one_particle(double energy,
     return energy;
 }
 
-int test_same_energy_verlet_and_not_verlet(const int n_particles,
-                                           const double box_size,
-                                           IndexesList_t *verlet_list,
-                                           double *pos_array,
-                                           double *charge_array,
-                                           const int space_dimension,
+int test_same_energy_verlet_and_not_verlet(int n_particles,
+                                           double box_size,
+                                           const IndexesList_t *verlet_list,
+                                           const double *pos_array,
+                                           const double *charge_array,
+                                           int space_dimension,
                                            double epsilon,
-                                           double sigma)
+                                           double sigma,
+                                           double tollerance)
 {
 
-    double TOLLERANCE = 1e-6;
     double no_verlet_energy = pb_compute_total_energy(pos_array, charge_array, n_particles, space_dimension, box_size, epsilon, sigma);
     double verlet_energy = pb_verlet_compute_total_energy(pos_array, charge_array, verlet_list, n_particles, space_dimension, box_size, epsilon, sigma);
     double relative_error = fabs(verlet_energy - no_verlet_energy) / fabs(verlet_energy);
-    int passed = relative_error < TOLLERANCE;
+    int passed = relative_error < tollerance;
 
     LOG_TEST("same energy estimation with and without verlet list\n");
-    fprintf(stderr, "Tollerance             : %5E\n"
-                    "Relative difference    : %5E\n\n",
-            TOLLERANCE, relative_error);
+    fprintf(stderr,
+            "Verlet energy          : %5E\n"
+            "No-Verlet energy       : %5E\n"
+            "Tollerance             : %5E\n"
+            "Relative difference    : %5E\n"
+            "\n",
+            verlet_energy, no_verlet_energy, tollerance, relative_error);
+
     if (passed == 1)
     {
-        fprintf(stderr, "Test status: " COLOR_GREEN STYLE_BOLD "PASSED" COLOR_RESET STYLE_RESET "\n");
+        LOG_TEST_PASSED;
     }
     else
     {
-        fprintf(stderr, COLOR_RED STYLE_BOLD "FAILED" COLOR_RESET STYLE_RESET "\n");
+        LOG_TEST_FAILED;
         exit(EXIT_FAILURE);
     }
 
@@ -493,9 +509,18 @@ int main(int argc, char const *argv[])
      * lattice_type & n_cell_per_row define the number of particles,
      * density and number of particles define the box size.
      */
-    const int lattice_type = 4;   // Lattice type 1 CC, 2 BCC, 4 FCC
-    const int n_cell_per_row = 6; // Number of lattice cell per row
-    const double density = 1;
+    // const int lattice_type = 4;   // Lattice type 1 CC, 2 BCC, 4 FCC
+    // const int n_cell_per_row = 6; // Number of lattice cell per row
+    // const double density = 1;
+    // const double lennar_jones_epsilon = 1;
+    // const double lennar_jones_sigma = 1;
+
+    // Argon Crystal
+    const int lattice_type = 4; // Lattice type FCC
+    const int n_cell_per_row = 10;
+    const double density = 0.85;
+    const double lennar_jones_epsilon = 1;
+    const double lennar_jones_sigma = 1;
 
     const int space_dimension = 3; // 1D - 2D - 3D - ... - nD
 
@@ -517,9 +542,6 @@ int main(int argc, char const *argv[])
                     "Space_step = %lf, Box_size = %lf\n",
                     space_step, box_size);
     }
-
-    const double lennar_jones_epsilon = 1;
-    const double lennar_jones_sigma = 1;
 
     /**
      * Positions are store in a flattered array of size (N * SPACE_DIM), where
@@ -566,7 +588,6 @@ int main(int argc, char const *argv[])
         LOG_FATAL("Error allocating counting array");
     }
 
-    long metropolis_accepted_steps = 0;
     double energy = 0;
 
     const int restart_from_checkpoint = 0;
@@ -611,8 +632,8 @@ int main(int argc, char const *argv[])
      * I think one can do that by approximating the metropolis step as a random walk and using the fact that
      * we how which std it has, sqrt(N).
      */
-    const double VERLET_MAX_NEIGHTBOR_DISTANCE = 3.7 * SIGMA; // Same used in Lennar Jones
-    const double SKIN = 0.5 * VERLET_MAX_NEIGHTBOR_DISTANCE;
+    const double VERLET_MAX_NEIGHTBOR_DISTANCE = 2.5 * lennar_jones_sigma;
+    const double SKIN = 1 * VERLET_MAX_NEIGHTBOR_DISTANCE;
 
     // Use the same r_c for verlet list and lennar jones
     LENNAR_JONES_CUT_OFF_IN_SIGMA_UNIT = VERLET_MAX_NEIGHTBOR_DISTANCE;
@@ -655,7 +676,9 @@ int main(int argc, char const *argv[])
         else
         {
 
-            // Computationally is the same but is more precise
+            /** If REAL_CUTOFF is less than VERLET_MAX_NEIGHTBOR_DISTANCE using the latter
+             *  one is computationally the same, but is more precise
+             */
             REAL_CUTOFF = VERLET_MAX_NEIGHTBOR_DISTANCE;
 
             LOG_INFO("REAL_CUTOFF less than VERLET_MAX_NEIGHTBOR_DISTANCE.\n"
@@ -675,23 +698,24 @@ int main(int argc, char const *argv[])
     printf("Start energy      : %.6e\n", energy);
     printf("-------------------------------------\n");
 
-    test_same_energy_verlet_and_not_verlet(n_particles, box_size, verlet_list, pos_array, charge_array, space_dimension, EPSILON, SIGMA);
+    test_same_energy_verlet_and_not_verlet(n_particles, box_size, verlet_list, pos_array, charge_array, space_dimension, lennar_jones_epsilon, lennar_jones_sigma, 1e-6);
     printf("-------------------------------------\n");
 
-    /** This test measure the difference in ewald energy estimation incresing the
-     *  RECIPROCAL_RANGE and REAL_RANGE by one. The real part differenc should be in the
-     * order of the choosed error. To get a smaller difference increase REAL_CUT_OFF (remember to increase
-     * verlet_max_neightbor_distance too).
-     *
-     * NOTE: right now I am imposing a relative error of 1% on long + short ewald energy,
-     * I am not considering the self one because it does not count for metropolis being constant.
-     */
-    ewd_test_increase_range(pos_array, charge_array, n_particles, box_size, 1e-2);
+    if (COULOMB_INTERACTION_ON)
+    {
+        /** This test measure the difference in ewald energy estimation incresing the
+         *  RECIPROCAL_RANGE and REAL_RANGE by one. The real part differenc should be in the
+         * order of the choosed error. To get a smaller difference increase REAL_CUT_OFF (remember to increase
+         * verlet_max_neightbor_distance too).
+         *
+         * NOTE: right now I am imposing a relative error of 1% on long + short ewald energy,
+         * I am not considering the self one because it does not count for metropolis being constant.
+         */
+        const double tollerance = 1e-2;
+        ewd_test_increase_range(pos_array, charge_array, n_particles, box_size, tollerance);
+    }
 
-    // Choose type of simulation
-    enum SIMULATION_TYPE simulation_type = INCREASING_T;
-
-    switch (simulation_type)
+    switch (SIMULATION_TYPE)
     {
     case INCREASING_T:
         goto INCREASE_TEMPERATURE_SIMULATION;
@@ -732,13 +756,13 @@ INCREASE_TEMPERATURE_SIMULATION:
     printf(STYLE_BOLD "        INCREASING T SIMULATION\n" STYLE_RESET);
     printf("=====================================\n");
 
-    const double temperature_min = 1.50;
-    const double temperature_max = 1.60;
-    const int N_temperatures = 5;
+    const double temperature_min = 0.6;
+    const double temperature_max = 0.8;
+    const int N_temperatures = 4;
     const double dT = (temperature_max - temperature_min) / N_temperatures;
 
-    const int N_step_thermalization = 5000;
-    const int N_step_data = 50000;
+    const int N_step_thermalization = 50000;
+    const int N_step_data = 100000;
     const int N_step_tot = N_step_thermalization + N_step_data;
 
     double *energy_array = (double *)malloc(sizeof(double) * N_step_data);
@@ -755,6 +779,7 @@ INCREASE_TEMPERATURE_SIMULATION:
 
     for (size_t i = 0; i < N_temperatures; i++)
     {
+        long metropolis_accepted_steps = 0;
         clock_t begin_time = clock(); // Save starting time, used for ETA in progress bar
 
         double temperature = temperature_min + i * dT;
@@ -796,6 +821,8 @@ INCREASE_TEMPERATURE_SIMULATION:
         char filename[128];
         sprintf(filename, "./state_saves_binaries/checkpoint_T%.3f.bin", temperature);
         save_checkpoint_binary(filename, pos_array, n_particles, space_dimension, energy);
+
+        printf("Accepted step: %ld / %d, %.2f percent\n", metropolis_accepted_steps, N_step_tot * n_particles, (float)metropolis_accepted_steps / (float)(N_step_tot * n_particles));
     }
 
     free(energy_array);
@@ -835,17 +862,18 @@ SINGLE_TEMPERATURE_SIMULATION:
     printf(STYLE_BOLD "        SINGLE T SIMULATION\n" STYLE_RESET);
     printf("=====================================\n");
 
-    const int N_data_steps = 10000;
+    const int N_data_steps = 100000;
     const int N_thermalization_steps = 5000;
     const int N_metropolis_steps = N_thermalization_steps + N_data_steps;
-    double temperature = 2;
+    double temperature = 0.9;
 
     printf(" Temperature : %.3f\n", temperature);
     printf("-------------------------------------\n");
 
-    // Keep track of how frequntly the verlet lists are updated
+    // Keep track of how frequently the verlet lists are updated
     int counting_verlet = 0;
     int min_counting_verlet = INT32_MAX;
+    long metropolis_accepted_steps = 0;
 
     clock_t begin_time = clock();
     for (size_t i = 0; i < N_metropolis_steps; i++)
@@ -892,7 +920,7 @@ SINGLE_TEMPERATURE_SIMULATION:
     // Clear terminal and print end simulation info
     printf("\r\033[2K");
     printf("Min number of step before update: %d\n", min_counting_verlet);
-    printf("Accepted step: %ld\n", metropolis_accepted_steps);
+    printf("Accepted step: %ld / %d\n", metropolis_accepted_steps * n_particles, N_metropolis_steps * n_particles);
     printf("End energy: %f\n", energy);
     printf("=====================================\n");
 

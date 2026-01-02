@@ -29,6 +29,12 @@
     fprintf(stderr, STYLE_BOLD COLOR_GREEN "TEST: " STYLE_RESET COLOR_RESET fmt "\n", \
             ##__VA_ARGS__)
 
+#define LOG_TEST_PASSED \
+    fprintf(stderr, "Test Status: " STYLE_BOLD COLOR_GREEN "PASSED" STYLE_RESET COLOR_RESET "\n")
+
+#define LOG_TEST_FAILED \
+    fprintf(stderr, "Test Status: " STYLE_BOLD COLOR_RED "FAILED" STYLE_RESET COLOR_RESET "\n")
+
 #define LOG_FATAL(fmt, ...)            \
     do                                 \
     {                                  \

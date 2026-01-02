@@ -250,7 +250,12 @@ double ewd_i_short_energy(int i, const double *pos_array, const double *charge_a
  * @note Requires a right initialized VerletList vl.
  * @note Complexity O(1)
  */
-double ewd_verlet_i_short_energy(int i, const double *pos_array, const double *charge_array, const IndexesList_t *vl, int n_particles, double box_size)
+double ewd_verlet_i_short_energy(int i,
+                                 const double *pos_array,
+                                 const double *charge_array,
+                                 const IndexesList_t *vl,
+                                 int n_particles,
+                                 double box_size)
 {
     double real_space_i_energy = 0;
 
@@ -295,7 +300,10 @@ double ewd_verlet_i_short_energy(int i, const double *pos_array, const double *c
  *
  * @note Complexity of N*O(N) = O(N^2)
  */
-double ewd_short_energy(const double *pos_array, const double *charge_array, int n_particles, double box_size)
+double ewd_short_energy(const double *pos_array,
+                        const double *charge_array,
+                        int n_particles,
+                        double box_size)
 {
     double real_space_energy = 0;
 
@@ -315,7 +323,11 @@ double ewd_short_energy(const double *pos_array, const double *charge_array, int
  *
  * @note requires a right initialized VerletList vl.
  */
-double ewd_verlet_short_energy(const double *pos_array, const double *charge_array, const IndexesList_t *vl, int n_particles, double box_size)
+double ewd_verlet_short_energy(const double *pos_array,
+                               const double *charge_array,
+                               const IndexesList_t *vl,
+                               int n_particles,
+                               double box_size)
 {
     double real_space_energy = 0;
 
@@ -335,7 +347,12 @@ double ewd_verlet_short_energy(const double *pos_array, const double *charge_arr
  * of the charge distribution in the system, for a given reciprocal lattice vector (k = (k_x, k_y, k_z)).
  * The structural factor is used to calculate the long-range Coulomb interactions in reciprocal space in the Ewald summation.
  */
-static inline double complex ewd_compute_structural_factor(const double *pos_array, const double *charge_array, int n_particles, double k_x, double k_y, double k_z)
+double complex ewd_compute_structural_factor(const double *pos_array,
+                                             const double *charge_array,
+                                             int n_particles,
+                                             double k_x,
+                                             double k_y,
+                                             double k_z)
 {
     double complex structural_factor = 0;
     // Term O(N)
@@ -366,7 +383,10 @@ static inline double complex ewd_compute_structural_factor(const double *pos_arr
  * reciprocal lattice vectors within the defined range, applying the appropriate
  * screening factor, and normalizing by the system volume.
  */
-double ewd_long_energy(const double *pos_array, const double *charge_array, int n_particles, double box_size)
+double ewd_long_energy(const double *pos_array,
+                       const double *charge_array,
+                       int n_particles,
+                       double box_size)
 {
     const double base_frequency = (2 * PI / box_size);
     double sum = 0;
@@ -411,7 +431,10 @@ double ewd_long_energy(const double *pos_array, const double *charge_array, int 
  *
  * @note Complexity O(N^2)
  */
-double ewd_total_energy(const double *pos_array, const double *charge_array, int n_particles, double box_size)
+double ewd_total_energy(const double *pos_array,
+                        const double *charge_array,
+                        int n_particles,
+                        double box_size)
 {
 
     if (EWD_OPTIMIZED == 0)
@@ -435,7 +458,11 @@ double ewd_total_energy(const double *pos_array, const double *charge_array, int
  *
  * @note Complexity O(N)
  */
-double ewd_verlet_total_energy(const double *pos_array, const double *charge_array, const IndexesList_t *vl, int n_particles, double box_size)
+double ewd_verlet_total_energy(const double *pos_array,
+                               const double *charge_array,
+                               const IndexesList_t *vl,
+                               int n_particles,
+                               double box_size)
 {
 
     if (EWD_OPTIMIZED == 0)
@@ -470,7 +497,11 @@ double ewd_verlet_total_energy(const double *pos_array, const double *charge_arr
  *
  * @note Complexity O(1)
  */
-double ewd_delta_long_energy(int i, const double *new_pos_array, const double *old_pos_array, const double *charge_array, double box_size)
+double ewd_delta_long_energy(int i,
+                             const double *new_pos_array,
+                             const double *old_pos_array,
+                             const double *charge_array,
+                             double box_size)
 {
 
     const int NK = 2 * RECIPROCAL_RANGE + 1;
@@ -521,7 +552,11 @@ double ewd_delta_long_energy(int i, const double *new_pos_array, const double *o
  *
  * @note Complexity O(1)
  */
-void ewd_update_S_K(int i, const double *new_pos_array, const double *old_pos_array, const double *charge_array, double box_size)
+void ewd_update_S_K(int i,
+                    const double *new_pos_array,
+                    const double *old_pos_array,
+                    const double *charge_array,
+                    double box_size)
 {
     const int NK = 2 * RECIPROCAL_RANGE + 1;
     const double base_frequency = (2 * PI / box_size);
@@ -557,7 +592,10 @@ void ewd_update_S_K(int i, const double *new_pos_array, const double *old_pos_ar
 /**
  * @brief Used in "ewd_init_S_K", look at it's description for more inormation.
  */
-static void ewd_fill_S_K(const double *pos_array, const double *charge_array, int n_particles, double box_size)
+static void ewd_fill_S_K(const double *pos_array,
+                         const double *charge_array,
+                         int n_particles,
+                         double box_size)
 {
     const int NK = 2 * RECIPROCAL_RANGE + 1;
     const double base_frequency = (2 * PI / box_size);
@@ -608,7 +646,10 @@ static void ewd_fill_S_K(const double *pos_array, const double *charge_array, in
  * To retrieve the correct index for a vector K use:
  * idx = (k_x + RECIPROCAL_RANGE) * NK * NK + (k_y + RECIPROCAL_RANGE) * NK + (k_z + RECIPROCAL_RANGE);
  */
-void ewd_init_S_K(const double *pos_array, const double *charge_array, int n_particles, double box_size)
+void ewd_init_S_K(const double *pos_array,
+                  const double *charge_array,
+                  int n_particles,
+                  double box_size)
 {
     const int NK = 2 * RECIPROCAL_RANGE + 1;
     const int Ntot = NK * NK * NK;
@@ -627,7 +668,11 @@ void ewd_init_S_K(const double *pos_array, const double *charge_array, int n_par
     ewd_fill_S_K(pos_array, charge_array, n_particles, box_size);
 }
 
-int ewd_test_increase_range(const double *pos_array, const double *charge_array, int n_particles, double box_size, double tollerance)
+int ewd_test_increase_range(const double *pos_array,
+                            const double *charge_array,
+                            int n_particles,
+                            double box_size,
+                            double tollerance)
 {
 
     double short_range_energy_old = ewd_short_energy(pos_array, charge_array, n_particles, box_size);
@@ -678,11 +723,11 @@ int ewd_test_increase_range(const double *pos_array, const double *charge_array,
 
     if (passed1 == 1 && passed2 == 1 && passed3 == 1)
     {
-        fprintf(stderr, "Test status: " COLOR_GREEN STYLE_BOLD "PASSED" COLOR_RESET STYLE_RESET "\n");
+        LOG_TEST_PASSED;
     }
     else
     {
-        fprintf(stderr, "Test status: " COLOR_RED STYLE_BOLD "FAILED" COLOR_RESET STYLE_RESET "\n");
+        LOG_TEST_FAILED;
         exit(EXIT_FAILURE);
     }
 
