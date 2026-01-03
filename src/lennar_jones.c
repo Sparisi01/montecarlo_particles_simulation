@@ -33,14 +33,15 @@ double pb_i_lennar_jones_potential(int i,
     double sigma_12 = sigma_6 * sigma_6;
 
     double r_c = LENNAR_JONES_CUT_OFF_IN_SIGMA_UNIT * sigma;
-    static double VSHIFT = 0;
-    if (VSHIFT == 0)
-    {
-        double inv_rc2 = 1. / (r_c * r_c);
-        double inv_rc6 = inv_rc2 * inv_rc2 * inv_rc2;
-        double inv_rc12 = inv_rc6 * inv_rc6;
-        VSHIFT = 4.0 * epsilon * (sigma_12 * inv_rc12 - sigma_6 * inv_rc6);
-    }
+
+    // static double VSHIFT = 0;
+    // if (VSHIFT == 0)
+    // {
+    //     double inv_rc2 = 1. / (r_c * r_c);
+    //     double inv_rc6 = inv_rc2 * inv_rc2 * inv_rc2;
+    //     double inv_rc12 = inv_rc6 * inv_rc6;
+    //     VSHIFT = 4.0 * epsilon * (sigma_12 * inv_rc12 - sigma_6 * inv_rc6);
+    // }
 
     for (int k = 0; k < n_particles; k++)
     {
@@ -76,7 +77,8 @@ double pb_i_lennar_jones_potential(int i,
 
         double V_Lennar_Jones = 4.0 * epsilon * (sigma_12 * inv_r12 - sigma_6 * inv_r6);
 
-        energy_i += V_Lennar_Jones - VSHIFT;
+        // energy_i += V_Lennar_Jones - VSHIFT;
+        energy_i += V_Lennar_Jones;
     }
 
     return energy_i;
@@ -125,20 +127,18 @@ double pb_verlet_i_lennar_jones_potential(int i,
     /**
      * Apply space cutoff using the fact that the lennar jones potential
      * is low range and a lot of interaction can be truncated without
-     * losing accuracy. In order to mantain the continuity of V at r = r_c
-     * we perform an energy vertical shift (VSHIFT). This shift is the same
-     * for all the simulation, so it has to be computed only once.
+     * losing accuracy.
      */
     double r_c = LENNAR_JONES_CUT_OFF_IN_SIGMA_UNIT * sigma;
 
-    static double VSHIFT = 0;
-    if (VSHIFT == 0)
-    {
-        double inv_rc2 = 1. / (r_c * r_c);
-        double inv_rc6 = inv_rc2 * inv_rc2 * inv_rc2;
-        double inv_rc12 = inv_rc6 * inv_rc6;
-        VSHIFT = 4.0 * epsilon * (sigma_12 * inv_rc12 - sigma_6 * inv_rc6);
-    }
+    // static double VSHIFT = 0;
+    // if (VSHIFT == 0)
+    // {
+    //     double inv_rc2 = 1. / (r_c * r_c);
+    //     double inv_rc6 = inv_rc2 * inv_rc2 * inv_rc2;
+    //     double inv_rc12 = inv_rc6 * inv_rc6;
+    //     VSHIFT = 4.0 * epsilon * (sigma_12 * inv_rc12 - sigma_6 * inv_rc6);
+    // }
 
     for (int v = 0; v < vl[i].count; v++)
     {
@@ -177,7 +177,8 @@ double pb_verlet_i_lennar_jones_potential(int i,
 
         double V_Lennar_Jones = 4.0 * epsilon * (sigma_12 * inv_r12 - sigma_6 * inv_r6);
 
-        energy_i += V_Lennar_Jones - VSHIFT;
+        // energy_i += V_Lennar_Jones - VSHIFT;
+        energy_i += V_Lennar_Jones;
     }
 
     return energy_i;
@@ -202,6 +203,19 @@ double pb_verlet_tot_lennar_jones_energy(const double *pos_array,
     energy *= 0.5; // remove double counting from pb_compute_one_particle_energy
 
     return energy;
+}
+
+double lennard_jones_tail_correction_per_particle(
+    double density,
+    double epsilon,
+    double sigma,
+    double r_c)
+{
+    double rc3 = pow(sigma / r_c, 3);
+    double rc9 = rc3 * rc3 * rc3;
+
+    return (8.0 * PI * density * epsilon / 3.0) *
+           ((1.0 / 3.0) * rc9 - rc3);
 }
 
 #endif

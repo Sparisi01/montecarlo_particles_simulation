@@ -503,38 +503,44 @@ int main(int argc, char const *argv[])
 
     printf("-------------------------------------\n");
 
+    const int seed = 42;
+    srand48(seed);
+
     /**
      * SIMULATION PARAMETERS
-     * Those are the 3 parameters that actually control the simulation.
-     * lattice_type & n_cell_per_row define the number of particles,
-     * density and number of particles define the box size.
      */
-    // const int lattice_type = 4;   // Lattice type 1 CC, 2 BCC, 4 FCC
-    // const int n_cell_per_row = 6; // Number of lattice cell per row
-    // const double density = 1;
-    // const double lennar_jones_epsilon = 1;
-    // const double lennar_jones_sigma = 1;
 
     // Argon Crystal
     const int lattice_type = 4; // Lattice type FCC
-    const int n_cell_per_row = 10;
-    const double density = 0.85;
+    const int n_cell_per_row = 5;
+    const double density = 7E-03;
+
+    // In reduced unit keep those at 1
     const double lennar_jones_epsilon = 1;
     const double lennar_jones_sigma = 1;
 
     const int space_dimension = 3; // 1D - 2D - 3D - ... - nD
 
-    const int seed = 42;
-    srand48(seed);
-
     const int n_particles = pow(n_cell_per_row, 3) * lattice_type;
     const double box_size = pow(n_particles / density, 1.0 / space_dimension);
+
+    /** Max space step in metropolis update,
+     *  should be << box_size and give an acceptance rate of 40-70%
+     */
+    const double space_step = 0.1;
+
+    const int restart_from_checkpoint = 0;
+    const char *check_point_file_name = "./state_saves_binaries/checkpoint_T1.500.bin";
+
+    const double VERLET_MAX_NEIGHTBOR_DISTANCE = 3 * lennar_jones_sigma;
+    const double SKIN = 0.5 * VERLET_MAX_NEIGHTBOR_DISTANCE;
+
+    // Use the same r_c for verlet list and lennar jones
+    LENNAR_JONES_CUT_OFF_IN_SIGMA_UNIT = VERLET_MAX_NEIGHTBOR_DISTANCE / lennar_jones_sigma;
 
     printf("N_particles : %d\n", n_particles);
     printf("Box_size    : %.3f\n", box_size);
     printf("Density     : %.3f\n", density);
-
-    const double space_step = 0.1; // Max space step in metropolis update, should be << box_size
 
     if (space_step > box_size * 0.05)
     {
@@ -553,23 +559,23 @@ int main(int argc, char const *argv[])
 
     double *pos_array = (double *)malloc(total_vel_pos_array_size * sizeof(double));
     if (pos_array == NULL)
-        exit(EXIT_FAILURE);
+        LOG_FATAL("Error allocating pos_array");
 
     double *charge_array = (double *)malloc(n_particles * sizeof(double));
     if (charge_array == NULL)
-        exit(EXIT_FAILURE);
+        LOG_FATAL("Error allocating charge_array");
 
     double *mass_array = (double *)malloc(n_particles * sizeof(double));
     if (mass_array == NULL)
-        exit(EXIT_FAILURE);
+        LOG_FATAL("Error allocating mass_array");
 
     FILE *radial_distribution_file = fopen("./output/radial_distribution.csv", "w");
     if (radial_distribution_file == NULL)
-        exit(EXIT_FAILURE);
+        LOG_FATAL("Error opening radial_distribution_file");
 
     FILE *energy_file = fopen("./output/energy.csv", "w");
     if (energy_file == NULL)
-        exit(EXIT_FAILURE);
+        LOG_FATAL("Error opening energy_file");
 
     setvbuf(energy_file, NULL, _IOFBF, 1 << 20); // 1 MB buffer, used to increase performance
 
@@ -584,16 +590,12 @@ int main(int argc, char const *argv[])
 
     double *bin_counting_array = (double *)calloc(N_bins, sizeof(double)); // Bins array
     if (!bin_counting_array)
-    {
         LOG_FATAL("Error allocating counting array");
-    }
 
     double energy = 0;
 
-    const int restart_from_checkpoint = 0;
     if (restart_from_checkpoint)
     {
-        const char *check_point_file_name = "./state_saves_binaries/checkpoint_T1.500.bin";
         load_checkpoint_binary(check_point_file_name, pos_array, n_particles, space_dimension, &energy);
     }
     else
@@ -632,23 +634,13 @@ int main(int argc, char const *argv[])
      * I think one can do that by approximating the metropolis step as a random walk and using the fact that
      * we how which std it has, sqrt(N).
      */
-    const double VERLET_MAX_NEIGHTBOR_DISTANCE = 2.5 * lennar_jones_sigma;
-    const double SKIN = 1 * VERLET_MAX_NEIGHTBOR_DISTANCE;
-
-    // Use the same r_c for verlet list and lennar jones
-    LENNAR_JONES_CUT_OFF_IN_SIGMA_UNIT = VERLET_MAX_NEIGHTBOR_DISTANCE;
-
     double *old_pos_array = (double *)malloc(total_vel_pos_array_size * sizeof(double));
     if (old_pos_array == NULL)
-    {
-        exit(EXIT_FAILURE);
-    }
+        LOG_FATAL("Error allocating old_pos_array");
 
     IndexesList_t *verlet_list = (IndexesList_t *)malloc(sizeof(IndexesList_t) * n_particles);
     if (verlet_list == NULL)
-    {
-        exit(EXIT_FAILURE);
-    }
+        LOG_FATAL("Error allocating verlet_list");
 
     // Build verlet list
     verlet_pb_build_list(pos_array, old_pos_array, verlet_list, n_particles, space_dimension, box_size, VERLET_MAX_NEIGHTBOR_DISTANCE, SKIN);
@@ -695,10 +687,14 @@ int main(int argc, char const *argv[])
         energy = pb_verlet_compute_total_energy(pos_array, charge_array, verlet_list, n_particles, space_dimension, box_size, lennar_jones_epsilon, lennar_jones_sigma);
     }
 
-    printf("Start energy      : %.6e\n", energy);
+    printf("Start energy        : %.6e\n", energy);
+
+    // Correction to the energy per particle due to cut off
+    const double LJ_tail_correction = lennard_jones_tail_correction_per_particle(density, lennar_jones_epsilon, lennar_jones_sigma, LENNAR_JONES_CUT_OFF_IN_SIGMA_UNIT) * n_particles;
+    printf("Tail correction     : %lf\n", LJ_tail_correction);
     printf("-------------------------------------\n");
 
-    test_same_energy_verlet_and_not_verlet(n_particles, box_size, verlet_list, pos_array, charge_array, space_dimension, lennar_jones_epsilon, lennar_jones_sigma, 1e-6);
+    // test_same_energy_verlet_and_not_verlet(n_particles, box_size, verlet_list, pos_array, charge_array, space_dimension, lennar_jones_epsilon, lennar_jones_sigma, 1e-6);
     printf("-------------------------------------\n");
 
     if (COULOMB_INTERACTION_ON)
@@ -865,7 +861,7 @@ SINGLE_TEMPERATURE_SIMULATION:
     const int N_data_steps = 100000;
     const int N_thermalization_steps = 5000;
     const int N_metropolis_steps = N_thermalization_steps + N_data_steps;
-    double temperature = 0.9;
+    double temperature = 8.50E-01;
 
     printf(" Temperature : %.3f\n", temperature);
     printf("-------------------------------------\n");
@@ -920,7 +916,7 @@ SINGLE_TEMPERATURE_SIMULATION:
     // Clear terminal and print end simulation info
     printf("\r\033[2K");
     printf("Min number of step before update: %d\n", min_counting_verlet);
-    printf("Accepted step: %ld / %d\n", metropolis_accepted_steps * n_particles, N_metropolis_steps * n_particles);
+    printf("Accepted step: %ld / %d, %.2f percent\n", metropolis_accepted_steps, N_metropolis_steps * n_particles, (float)metropolis_accepted_steps / (float)(N_metropolis_steps * n_particles));
     printf("End energy: %f\n", energy);
     printf("=====================================\n");
 
