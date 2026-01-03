@@ -513,7 +513,7 @@ int main(int argc, char const *argv[])
     // Argon Crystal
     const int lattice_type = 4; // Lattice type FCC
     const int n_cell_per_row = 5;
-    const double density = 7E-03;
+    const double density = 1e-3;
 
     // In reduced unit keep those at 1
     const double lennar_jones_epsilon = 1;
