@@ -88,7 +88,9 @@ int delta_test()
 void convergence_to_same_total_energy()
 {
 
-    printf("\n\n------CONVERGENCE TEST------\n");
+    LOG_TEST("Convergence test");
+
+    FILE *file = fopen("./output/convergence_test_file.csv", "w");
 
     const double TOLLERANCE = 1e-6;
 
@@ -111,13 +113,20 @@ void convergence_to_same_total_energy()
         charge[i] = (i % 2 == 0) ? 1.0 : -1.0;
     }
 
+    const double alpha_min = 2;
+    const double alpha_max = 40;
+    const double n_alpha = 100;
+    const double d_alpha = (alpha_max - alpha_min) / n_alpha;
     double old_en = 0;
-    for (size_t i = 2; i < 15; i++)
+
+    for (size_t i = 2; i < n_alpha; i++)
     {
-        REAL_RANGE = 5;
-        RECIPROCAL_RANGE = 20;
-        REAL_CUTOFF = 5;
-        ALPHA = i;
+        ALPHA = alpha_min + i * d_alpha;
+
+        REAL_CUTOFF = 4.0 / ALPHA;
+        REAL_RANGE = ceil(REAL_CUTOFF / box_size);
+
+        RECIPROCAL_RANGE = ceil(8.0 * ALPHA * box_size / (2 * PI));
 
         double self_en = ewd_self_energy(charge, n_particles) / n_particles;
         double long_en = ewd_long_energy(pos, charge, n_particles, box_size) / n_particles;
@@ -125,14 +134,21 @@ void convergence_to_same_total_energy()
         double tot_en = long_en + short_en - self_en;
 
         printf("Alpha: %.f, Short: %.5E, Long: %.5E, Self: %.5E, Tot: %.10E\n", ALPHA, short_en, long_en, self_en, tot_en);
+        printf("alpha*rc = %.3f, kc/(2a)=%.3f\n",
+               ALPHA * REAL_CUTOFF,
+               (2 * PI * RECIPROCAL_RANGE / box_size) / (2 * ALPHA));
+        fprintf(file, "%.f;%.5E;%.5E;%.5E;%.10E\n", ALPHA, short_en, long_en, self_en, tot_en);
 
         if (i > 4 && fabs(old_en - tot_en) / tot_en > TOLLERANCE)
         {
-            LOG_FATAL("convergence test failed, new energy above tollerance");
+            LOG_TEST_FAILED;
+            return;
         }
 
         old_en = tot_en;
     }
+
+    LOG_TEST_PASSED;
 }
 
 void translate(double *pos, int n_particles, double dx, double dy, double dz, double L)

@@ -196,10 +196,6 @@ double ewd_i_short_energy(int i, const double *pos_array, const double *charge_a
     for (size_t j = 0; j < n_particles; j++)
     {
 
-        // Exclude self particle in cell (0,0,0)
-        if (i == j)
-            continue;
-
         double r_ij_x = pos_array[c(i, 0)] - pos_array[c(j, 0)];
         double r_ij_y = pos_array[c(i, 1)] - pos_array[c(j, 1)];
         double r_ij_z = pos_array[c(i, 2)] - pos_array[c(j, 2)];
@@ -215,6 +211,10 @@ double ewd_i_short_energy(int i, const double *pos_array, const double *charge_a
             {
                 for (int n_z = -REAL_RANGE; n_z <= REAL_RANGE; n_z++)
                 {
+
+                    // Exclude self particle in cell (0,0,0)
+                    if (i == j && n_x == 0 && n_y == 0 && n_z == 0)
+                        continue;
 
                     double r_ij_x_n = r_ij_x + n_x * box_size;
                     double r_ij_y_n = r_ij_y + n_y * box_size;
