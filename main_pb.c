@@ -1,3 +1,7 @@
+/**
+ * @details
+ */
+
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -14,9 +18,7 @@
 #include "src/ewald.c"
 #include "src/progress_bar.c"
 #include "src/verlet_list.c"
-
-#define MAX(a, b) ((a) > (b) ? (a) : (b))
-#define MIX(a, b) ((a) < (b) ? (a) : (b))
+#include "src/radial_distribution.c"
 
 enum SIMULATION_TYPE
 {
@@ -27,38 +29,8 @@ enum SIMULATION_TYPE
 
 // Choose type of simulation
 const enum SIMULATION_TYPE SIMULATION_TYPE = SINGLE_T;
-const double LAMBDA = 1; // For what lambda is see latex paper section "Units"
-const int COULOMB_INTERACTION_ON = 0;
-
-/**
- * @brief Compute the radial distribution storing the counting in a bin array "bins_array" of bin size "bin_interval"
- */
-void radial_distribution(const double *pos_array,
-                         int n_particles,
-                         int space_dim,
-                         double box_size,
-                         double *bins_array,
-                         int N_bins,
-                         double bin_interval)
-{
-    for (size_t i = 0; i < n_particles; i++)
-    {
-        for (size_t k = i + 1; k < n_particles; k++)
-        {
-            double r2 = 0;
-            for (int j = 0; j < space_dim; j++)
-            {
-                double dx = pb_minimum_image(pos_array[c(i, j)] - pos_array[c(k, j)], box_size);
-                r2 += dx * dx;
-            }
-
-            int n_bin = (int)(sqrt(r2) / bin_interval);
-
-            if (n_bin < N_bins)
-                bins_array[n_bin]++;
-        }
-    }
-}
+const double LAMBDA = 1e-1; // For what lambda is see latex paper section "Units"
+const int COULOMB_INTERACTION_ON = 1;
 
 /**
  * @brief Save particles position and charge state in a csv file, easy to read in python for data analysis.
@@ -221,12 +193,12 @@ void init_system_lattice(double *pos_array,
     }
 }
 
-void init_system(double *pos_array,
-                 double *charge_array,
-                 double *mass_array,
-                 int n_particles,
-                 int space_dimension,
-                 double box_size)
+void init_system_random(double *pos_array,
+                        double *charge_array,
+                        double *mass_array,
+                        int n_particles,
+                        int space_dimension,
+                        double box_size)
 {
     for (size_t i = 0; i < n_particles; i++)
     {
@@ -387,7 +359,7 @@ double verlet_pb_metropolis_step_one_particle(double energy,
 
         double old_energy = pb_verlet_i_lennar_jones_potential(i, pos_array, charge_array, vl, n_particles, space_dim, box_size, epsilon, sigma);
         if (COULOMB_INTERACTION_ON)
-            old_energy += ewd_verlet_i_short_energy(i, pos_array, charge_array, vl, n_particles, box_size);
+            old_energy += LAMBDA * ewd_verlet_i_short_energy(i, pos_array, charge_array, vl, n_particles, box_size);
 
         // Random step in j direction between -delta and + delta
         for (int j = 0; j < space_dim; j++)
@@ -400,7 +372,7 @@ double verlet_pb_metropolis_step_one_particle(double energy,
 
         double new_energy = pb_verlet_i_lennar_jones_potential(i, pos_array, charge_array, vl, n_particles, space_dim, box_size, epsilon, sigma);
         if (COULOMB_INTERACTION_ON)
-            new_energy += ewd_verlet_i_short_energy(i, pos_array, charge_array, vl, n_particles, box_size);
+            new_energy += LAMBDA * ewd_verlet_i_short_energy(i, pos_array, charge_array, vl, n_particles, box_size);
 
         double dE = new_energy - old_energy;
 
@@ -495,12 +467,16 @@ int main(int argc, char const *argv[])
     printf(STYLE_BOLD "        STARTING SIMULATION\n" STYLE_RESET);
     printf("=====================================\n");
 
-    printf("Coluomb interaction: ");
+    printf("Coluomb : ");
     if (COULOMB_INTERACTION_ON)
+    {
         printf(STYLE_BOLD "ON\n" STYLE_RESET);
+        printf("Lambda  : %.f\n", LAMBDA);
+    }
     else
+    {
         printf(STYLE_BOLD "OFF\n" STYLE_RESET);
-
+    }
     printf("-------------------------------------\n");
 
     const int seed = 42;
@@ -512,8 +488,8 @@ int main(int argc, char const *argv[])
 
     // Argon Crystal
     const int lattice_type = 4; // Lattice type FCC
-    const int n_cell_per_row = 5;
-    const double density = 1e-3;
+    const int n_cell_per_row = 4;
+    const double density = 0.86;
 
     // In reduced unit keep those at 1
     const double lennar_jones_epsilon = 1;
@@ -569,10 +545,6 @@ int main(int argc, char const *argv[])
     if (mass_array == NULL)
         LOG_FATAL("Error allocating mass_array");
 
-    FILE *radial_distribution_file = fopen("./output/radial_distribution.csv", "w");
-    if (radial_distribution_file == NULL)
-        LOG_FATAL("Error opening radial_distribution_file");
-
     FILE *energy_file = fopen("./output/energy.csv", "w");
     if (energy_file == NULL)
         LOG_FATAL("Error opening energy_file");
@@ -588,9 +560,17 @@ int main(int argc, char const *argv[])
     const double bin_interval = max_radius / N_bins;
     int n_radial_distributions_performed = 0; // Keep track of how many times the g(r) is computed and summed to the bins, used to normalize
 
+    // Array and file for keep_track of g(r)
     double *bin_counting_array = (double *)calloc(N_bins, sizeof(double)); // Bins array
-    if (!bin_counting_array)
-        LOG_FATAL("Error allocating counting array");
+    FILE *radial_distribution_file = fopen("./output/radial_distribution.csv", "w");
+
+    // Array and file for keep_track of g+-(r)
+    double *bin_counting_array_differ = (double *)calloc(N_bins, sizeof(double)); // Bins array
+    FILE *radial_distribution_file_differ = fopen("./output/radial_distribution_differ.csv", "w");
+
+    // Array and file for keep_track of g--(r)
+    double *bin_counting_array_equal = (double *)calloc(N_bins, sizeof(double)); // Bins array
+    FILE *radial_distribution_file_equal = fopen("./output/radial_distribution_equal.csv", "w");
 
     double energy = 0;
 
@@ -601,7 +581,7 @@ int main(int argc, char const *argv[])
     else
     {
         init_system_lattice(pos_array, charge_array, mass_array, n_particles, box_size, lattice_type, n_cell_per_row);
-        // init_system(pos_array, charge_array, mass_array, n_particles, space_dimension, box_size);
+        // init_system_random(pos_array, charge_array, mass_array, n_particles, space_dimension, box_size);
     }
 
     save_particle_state_csv("./output/start_position_file.csv", pos_array, charge_array, n_particles, space_dimension);
@@ -654,7 +634,7 @@ int main(int argc, char const *argv[])
     if (COULOMB_INTERACTION_ON)
     {
         // NOTE
-        optimizeParameter(1e-2, box_size, charge_array, n_particles);
+        optimizeParameter(1e-1, box_size, charge_array, n_particles);
 
         ewd_print_parameters();
         printf("-------------------------------------\n");
@@ -687,14 +667,14 @@ int main(int argc, char const *argv[])
         energy = pb_verlet_compute_total_energy(pos_array, charge_array, verlet_list, n_particles, space_dimension, box_size, lennar_jones_epsilon, lennar_jones_sigma);
     }
 
-    printf("Start energy        : %.6e\n", energy);
+    printf("Start energy        : %.6E\n", energy);
 
     // Correction to the energy per particle due to cut off
     const double LJ_tail_correction = lennard_jones_tail_correction_per_particle(density, lennar_jones_epsilon, lennar_jones_sigma, LENNAR_JONES_CUT_OFF_IN_SIGMA_UNIT) * n_particles;
-    printf("Tail correction     : %lf\n", LJ_tail_correction);
+    printf("LJ tail correction  : %.6E\n", LJ_tail_correction);
     printf("-------------------------------------\n");
 
-    // test_same_energy_verlet_and_not_verlet(n_particles, box_size, verlet_list, pos_array, charge_array, space_dimension, lennar_jones_epsilon, lennar_jones_sigma, 1e-6);
+    test_same_energy_verlet_and_not_verlet(n_particles, box_size, verlet_list, pos_array, charge_array, space_dimension, lennar_jones_epsilon, lennar_jones_sigma, 1e-6);
     printf("-------------------------------------\n");
 
     if (COULOMB_INTERACTION_ON)
@@ -858,7 +838,7 @@ SINGLE_TEMPERATURE_SIMULATION:
     printf(STYLE_BOLD "        SINGLE T SIMULATION\n" STYLE_RESET);
     printf("=====================================\n");
 
-    const int N_data_steps = 100000;
+    const int N_data_steps = 10000;
     const int N_thermalization_steps = 5000;
     const int N_metropolis_steps = N_thermalization_steps + N_data_steps;
     double temperature = 8.50E-01;
@@ -876,7 +856,7 @@ SINGLE_TEMPERATURE_SIMULATION:
     {
         counting_verlet++;
 
-        // energy = pb_metropolis_step_full_system(energy, pos_array, charge_array, space_step, temperature, n_particles, space_dimension, &accepted_steps, box_size);
+        // Update system using metropolis 1 particle step
         energy = verlet_pb_metropolis_step_one_particle(energy, pos_array, charge_array, verlet_list, space_step, temperature, n_particles, space_dimension, &metropolis_accepted_steps, box_size, lennar_jones_epsilon, lennar_jones_sigma);
 
         // Check if the verlet list need to be rebuild
@@ -894,17 +874,19 @@ SINGLE_TEMPERATURE_SIMULATION:
         {
             // Progress Bar
             print_progress(i, N_metropolis_steps, begin_time);
-            printf(" - Min number of step before update: %d", min_counting_verlet);
+            printf(" - UpdateMinSteps: %d", min_counting_verlet);
 
             fflush(stdout);
             fflush(energy_file);
         }
 
         // Trashold for termalization
-        if ((i > N_thermalization_steps) & (i % 100 == 0))
+        if ((i > N_thermalization_steps) & (i % 10 == 0))
         {
             n_radial_distributions_performed++;
-            radial_distribution(pos_array, n_particles, space_dimension, box_size, bin_counting_array, N_bins, bin_interval);
+
+            // Compute all the different g(r)
+            radial_distribution_all(pos_array, charge_array, n_particles, space_dimension, box_size, bin_counting_array, bin_counting_array_equal, bin_counting_array_differ, N_bins, bin_interval);
         }
 
         if (i > 0)
@@ -925,14 +907,21 @@ SINGLE_TEMPERATURE_SIMULATION:
     // Normalization of bins in g(r)
     for (size_t i = 0; i < N_bins; i++)
     {
-        bin_counting_array[i] = (double)bin_counting_array[i] / (density * n_particles * n_radial_distributions_performed * (4 * PI / 3) * (pow((i + 1) * bin_interval, 3) - pow(i * bin_interval, 3)));
+        bin_counting_array[i] = (double)bin_counting_array[i] * 2 / (density * n_particles * n_radial_distributions_performed * (4 * PI / 3) * (pow((i + 1) * bin_interval, 3) - pow(i * bin_interval, 3)));
+        bin_counting_array_differ[i] = (double)bin_counting_array_differ[i] * 2 / (density * n_particles / 2 * n_radial_distributions_performed * (4 * PI / 3) * (pow((i + 1) * bin_interval, 3) - pow(i * bin_interval, 3)));
+        bin_counting_array_equal[i] = (double)bin_counting_array_equal[i] * 2 / (density * n_particles / 2 * n_radial_distributions_performed * (4 * PI / 3) * (pow((i + 1) * bin_interval, 3) - pow(i * bin_interval, 3)));
     }
 
+    // Save all g(r) into file
     for (size_t j = 0; j < N_bins; j++)
     {
         double r = (j + 0.5) * bin_interval;
         fprintf(radial_distribution_file, "%f;%f\n", r, bin_counting_array[j]);
+        fprintf(radial_distribution_file_differ, "%f;%f\n", r, bin_counting_array_differ[j]);
+        fprintf(radial_distribution_file_equal, "%f;%f\n", r, bin_counting_array_equal[j]);
     }
+
+    goto FREE_SECTION;
 
     // |------ END SINGLE TEMPERATURE SIMULATION ------|
 
