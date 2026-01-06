@@ -29,8 +29,8 @@ enum SIMULATION_TYPE
 
 // Choose type of simulation
 const enum SIMULATION_TYPE SIMULATION_TYPE = SINGLE_T;
-const double LAMBDA = 1e-1; // For what lambda is see latex paper section "Units"
-const int COULOMB_INTERACTION_ON = 1;
+const double LAMBDA = 0; // For what lambda is see latex paper section "Units"
+const int COULOMB_INTERACTION_ON = 0;
 
 /**
  * @brief Save particles position and charge state in a csv file, easy to read in python for data analysis.
@@ -488,7 +488,7 @@ int main(int argc, char const *argv[])
 
     // Argon Crystal
     const int lattice_type = 4; // Lattice type FCC
-    const int n_cell_per_row = 4;
+    const int n_cell_per_row = 5;
     const double density = 0.86;
 
     // In reduced unit keep those at 1
@@ -503,7 +503,7 @@ int main(int argc, char const *argv[])
     /** Max space step in metropolis update,
      *  should be << box_size and give an acceptance rate of 40-70%
      */
-    const double space_step = 0.1;
+    const double space_step = 0.05;
 
     const int restart_from_checkpoint = 0;
     const char *check_point_file_name = "./state_saves_binaries/checkpoint_T1.500.bin";
@@ -580,8 +580,8 @@ int main(int argc, char const *argv[])
     }
     else
     {
-        init_system_lattice(pos_array, charge_array, mass_array, n_particles, box_size, lattice_type, n_cell_per_row);
-        // init_system_random(pos_array, charge_array, mass_array, n_particles, space_dimension, box_size);
+        // init_system_lattice(pos_array, charge_array, mass_array, n_particles, box_size, lattice_type, n_cell_per_row);
+        init_system_random(pos_array, charge_array, mass_array, n_particles, space_dimension, box_size);
     }
 
     save_particle_state_csv("./output/start_position_file.csv", pos_array, charge_array, n_particles, space_dimension);
@@ -838,8 +838,8 @@ SINGLE_TEMPERATURE_SIMULATION:
     printf(STYLE_BOLD "        SINGLE T SIMULATION\n" STYLE_RESET);
     printf("=====================================\n");
 
-    const int N_data_steps = 10000;
-    const int N_thermalization_steps = 5000;
+    const int N_data_steps = 50000;
+    const int N_thermalization_steps = 25000;
     const int N_metropolis_steps = N_thermalization_steps + N_data_steps;
     double temperature = 8.50E-01;
 

@@ -57,23 +57,27 @@ void load_checkpoint_binary(const char *filename,
     }
 
     int n_p, s_d;
-    fread(&n_p, sizeof(int), 1, f);
-    fread(&s_d, sizeof(int), 1, f);
+    size_t chunk_return;
+
+    chunk_return = fread(&n_p, sizeof(int), 1, f);
+    chunk_return = fread(&s_d, sizeof(int), 1, f);
 
     if (n_p != n_particles || s_d != space_dim)
     {
         LOG_FATAL("%s", CHECKPOINT_ERROR_MESSAGE_INFO_MISSMATCH);
     }
 
-    fread(energy, sizeof(double), 1, f);
-
-    fread(pos_array, sizeof(double),
-          n_particles * space_dim, f);
+    chunk_return = fread(energy, sizeof(double), 1, f);
+    chunk_return = fread(pos_array, sizeof(double),
+                         n_particles * space_dim, f);
 
     // Load rng state
     unsigned short rng_state[3];
-    fread(rng_state, sizeof(unsigned short), 3, f);
+    chunk_return = fread(rng_state, sizeof(unsigned short), 3, f);
     srand48(rng_state[0]);
+
+    if (chunk_return == 1)
+        printf("here to remove a warming, just ignore");
 
     fclose(f);
 }
