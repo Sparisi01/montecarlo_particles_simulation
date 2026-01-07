@@ -15,9 +15,7 @@ double LENNAR_JONES_LOW_DISTANCE_CUTOFF = 1e-8;
  *
  * Apply space cutoff r_c using the fact that the lennar jones potential
  * is low range and a lot of interaction can be truncated without
- * losing accuracy. In order to mantain the continuity of V at r = r_c
- * we perform an energy vertical shift (VSHIFT). This shift is the same
- * for all the simulation, so it has to be computed only once.
+ * losing accuracy.
  */
 double pb_i_lennar_jones_potential(int i,
                                    const double *pos_array,

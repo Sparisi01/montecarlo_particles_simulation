@@ -29,8 +29,8 @@ enum SIMULATION_TYPE
 
 // Choose type of simulation
 const enum SIMULATION_TYPE SIMULATION_TYPE = SINGLE_T;
-const double LAMBDA = 0; // For what lambda is see latex paper section "Units"
-const int COULOMB_INTERACTION_ON = 0;
+const double LAMBDA = 20; // For what lambda is see latex paper section "Units"
+const int COULOMB_INTERACTION_ON = 1;
 
 /**
  * @brief Save particles position and charge state in a csv file, easy to read in python for data analysis.
