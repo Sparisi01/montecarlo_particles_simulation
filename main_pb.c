@@ -29,7 +29,7 @@ enum SIMULATION_TYPE
 
 // Choose type of simulation
 const enum SIMULATION_TYPE SIMULATION_TYPE = SINGLE_T;
-const double LAMBDA = 20; // For what lambda is see latex paper section "Units"
+const double LAMBDA = 100; // For what lambda is see latex paper section "Units"
 const int COULOMB_INTERACTION_ON = 1;
 
 /**
@@ -436,13 +436,14 @@ int test_same_energy_verlet_and_not_verlet(int n_particles,
     int passed = relative_error < tollerance;
 
     LOG_TEST("same energy estimation with and without verlet list\n");
-    fprintf(stderr,
-            "Verlet energy          : %5E\n"
-            "No-Verlet energy       : %5E\n"
-            "Tollerance             : %5E\n"
-            "Relative difference    : %5E\n"
-            "\n",
-            verlet_energy, no_verlet_energy, tollerance, relative_error);
+
+    const int n = 20;
+
+    fprintf(stderr, "%-*s : %+15.5E\n", n, "Verlet energy", verlet_energy);
+    fprintf(stderr, "%-*s : %+15.5E\n", n, "No-Verlet energy", no_verlet_energy);
+    fprintf(stderr, "%-*s : %+15.5E\n", n, "Tollerance", tollerance);
+    fprintf(stderr, "%-*s : %+15.5E\n", n, "Relative difference", relative_error);
+    fprintf(stderr, "\n");
 
     if (passed == 1)
     {
@@ -488,7 +489,7 @@ int main(int argc, char const *argv[])
 
     // Argon Crystal
     const int lattice_type = 4; // Lattice type FCC
-    const int n_cell_per_row = 2;
+    const int n_cell_per_row = 5;
     const double density = 0.86;
 
     // In reduced unit keep those at 1
@@ -580,8 +581,8 @@ int main(int argc, char const *argv[])
     }
     else
     {
-        // init_system_lattice(pos_array, charge_array, mass_array, n_particles, box_size, lattice_type, n_cell_per_row);
-        init_system_random(pos_array, charge_array, mass_array, n_particles, space_dimension, box_size);
+        init_system_lattice(pos_array, charge_array, mass_array, n_particles, box_size, lattice_type, n_cell_per_row);
+        // init_system_random(pos_array, charge_array, mass_array, n_particles, space_dimension, box_size);
     }
 
     save_particle_state_csv("./output/start_position_file.csv", pos_array, charge_array, n_particles, space_dimension);
@@ -838,8 +839,8 @@ SINGLE_TEMPERATURE_SIMULATION:
     printf(STYLE_BOLD "        SINGLE T SIMULATION\n" STYLE_RESET);
     printf("=====================================\n");
 
-    const int N_data_steps = 50000;
-    const int N_thermalization_steps = 25000;
+    const int N_data_steps = 10000;
+    const int N_thermalization_steps = 100000;
     const int N_metropolis_steps = N_thermalization_steps + N_data_steps;
     double temperature = 8.50E-01;
 
@@ -882,6 +883,7 @@ SINGLE_TEMPERATURE_SIMULATION:
 
         // Trashold for termalization
         if ((i > N_thermalization_steps) & (i % 10 == 0))
+        // if (i > 500 && i < 30000)
         {
             n_radial_distributions_performed++;
 
