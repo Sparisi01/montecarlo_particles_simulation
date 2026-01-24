@@ -29,8 +29,8 @@ enum SIMULATION_TYPE
 
 // Choose type of simulation
 const enum SIMULATION_TYPE SIMULATION_TYPE = SINGLE_T;
-const double LAMBDA = 100; // For what lambda is see latex paper section "Units"
-const int COULOMB_INTERACTION_ON = 1;
+const double LAMBDA = 0; // For what lambda is see latex paper section "Units"
+const int COULOMB_INTERACTION_ON = 0;
 
 /**
  * @brief Save particles position and charge state in a csv file, easy to read in python for data analysis.
@@ -489,7 +489,7 @@ int main(int argc, char const *argv[])
 
     // Argon Crystal
     const int lattice_type = 4; // Lattice type FCC
-    const int n_cell_per_row = 5;
+    const int n_cell_per_row = 4;
     const double density = 0.86;
 
     // In reduced unit keep those at 1
