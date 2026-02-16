@@ -3,293 +3,195 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
-#include <omp.h>
+#include <string.h>
 
 #include "src/constants.c"
+#include "src/checkpoints_handler.c"
+#include "src/arrays_stat_operations.c"
+#include "src/lennar_jones.c"
 #include "src/periodic_boundaries.c"
+#include "src/ewald.c"
+#include "src/progress_bar.c"
+#include "src/verlet_list.c"
+#include "src/radial_distribution.c"
 
-// Generate velocities from boltzman distribution using box muller
-double getRNDVelocity(double temperature)
+// Choose type of simulation
+const double LAMBDA = 20; // For what lambda is see latex paper section "Units"
+const int COULOMB_INTERACTION_ON = (LAMBDA != 0);
+
+/**
+ * @brief Save particles position and charge state in a csv file, easy to read in python for data analysis.
+ */
+void save_particle_state_csv(const char *filename,
+                             const double *pos_array,
+                             const double *charge_array,
+                             int n_particles,
+                             int space_dim)
 {
-    double x = drand48();
-    double y = drand48();
+    FILE *f = fopen(filename, "w");
+    if (!f)
+    {
+        perror("Csv save failed");
+        exit(EXIT_FAILURE);
+    }
 
-    return sqrt(temperature) * sqrt(-2 * log(1 - x)) * cos(2 * PI * y);
-}
-
-void save_particle_state(FILE *file, double *pos_array, double *charge_array, int n_particles, int space_dim)
-{
     for (size_t i = 0; i < n_particles; i++)
     {
         for (size_t j = 0; j < space_dim; j++)
         {
-            fprintf(file, "%f;", pos_array[c(i, j)]);
+            fprintf(f, "%f;", pos_array[c(i, j)]);
         }
-        fprintf(file, "%f\n", charge_array[i]);
-    }
-}
-
-static inline double pair_potential(double qi, double qj, double r2)
-{
-    // Prevent numerical blow-up
-    if (r2 < 1e-32)
-    {
-        r2 = 1e-32;
+        fprintf(f, "%f\n", charge_array[i]);
     }
 
-    double inv_r2 = 1. / r2;
-    double inv_r = sqrt(inv_r2);
-    double inv_r4 = inv_r2 * inv_r2;
-    double inv_r6 = inv_r2 * inv_r2 * inv_r2;
-    double inv_r12 = inv_r6 * inv_r6;
-
-    double sigma_6 = SIGMA * SIGMA * SIGMA * SIGMA * SIGMA * SIGMA;
-    double sigma_12 = sigma_6 * sigma_6;
-
-    double V_coulomb = K_COUL * qi * qj * inv_r;
-    // double V_Lennar_Jones = 4.0 * EPSILON * (sigma_12 * inv_r12 - sigma_6 * inv_r6);
-    double V_quadratic = inv_r4 * inv_r4;
-
-    return V_coulomb + V_quadratic;
+    fclose(f);
 }
 
-/* COMPUTE_ONE_PARTICLE_ENERGY
+/**
+ * @brief Given the system of N particle in D dimensional space compute the total interaction energy under periodic boudary conditions.
+ * By default only Lennar Jones potential is used. If at least 2 particles have a charge different from 0 the coulomb potential is turned on.
  *
- * Computes the interaction energy of a single particle `i` with all other particles
- * in the system. The total energy is obtained by summing the pairwise potential
- * between particle `i` and each particle `j`..
- *
- * Parameters:
- *   i             - Index of the particle for which the energy is computed.
- *   pos_array     - Array containing the positions of all particles. Coordinates
- *                   are accessed using the macro c(i, k).
- *   charge_array  - Array containing the charges of all particles, used for Coulomb potential.
- *   n_particles   - Total number of particles in the system.
- *   space_dim     - Dimensionality of the space (e.g., 2 for 2D, 3 for 3D).
- *
- * Behavior:
- *   - Skips self-interaction (when j == i).
- *   - Computes the squared distance between particles i and j by summing the
- *     squared coordinate differences.
- *   - Issues a warning and skips the pair if the distance is below a small
- *     threshold, indicating overlapping particles.
- *   - Accumulates the energy contribution from the pair potential function.
- *
- * Returns:
- *   The total interaction energy of particle `i` as a double.
+ * @note Coulomb potential is computed used Ewald Summation and it requires a space dimension of 3.
  */
-
-double compute_one_particle_energy(int i, double *pos_array, double *charge_array, int n_particles, int space_dim)
+double pb_compute_total_energy(const double *pos_array,
+                               const double *charge_array,
+                               int n_particles,
+                               int space_dim,
+                               double box_size,
+                               double epsilon,
+                               double sigma)
 {
-    double E = 0;
+    double total_energy = 0;
+    total_energy += pb_total_lennar_jones_energy(pos_array, charge_array, n_particles, space_dim, box_size, epsilon, sigma);
 
-    // #pragma omp parallel for reduction(+:energy)
-    for (int j = 0; j < n_particles; j++)
+    if (COULOMB_INTERACTION_ON)
     {
-        // Avoid self interaction
-        if (i == j)
-            continue;
-
-        double r2 = 0;
-
-        for (int k = 0; k < space_dim; k++)
+        if (space_dim != 3)
         {
-            double dx = pos_array[c(i, k)] - pos_array[c(j, k)];
-            r2 += dx * dx;
+            LOG_FATAL("Ewald Summation requires a space dimension of 3\n");
         }
-
-        E += pair_potential(charge_array[i], charge_array[j], r2);
+        total_energy += LAMBDA * ewd_total_energy(pos_array, charge_array, n_particles, box_size);
     }
 
-    return E;
+    return total_energy;
 }
 
-// Convert the energy array to the total energy
-double array_to_total_energy(double *E_array, int n_particles)
+/**
+ * @brief Same as "pb_compute_total_energy" but using VerletList to decrease computations efford. See "pb_compute_total_energy"
+ * for more on comments.
+ */
+double pb_verlet_compute_total_energy(const double *pos_array,
+                                      const double *charge_array,
+                                      const IndexesList_t *verlet_list,
+                                      int n_particles,
+                                      int space_dim,
+                                      double box_size,
+                                      double epsilon,
+                                      double sigma)
 {
-    double E = 0;
+    double total_energy = 0;
+    total_energy += pb_verlet_tot_lennar_jones_energy(pos_array, charge_array, verlet_list, n_particles, space_dim, box_size, epsilon, sigma);
 
-    for (int i = 0; i < n_particles; i++)
+    if (COULOMB_INTERACTION_ON)
     {
-        E += E_array[i];
+        if (space_dim != 3)
+        {
+            LOG_FATAL("Ewald Summation requires a space dimension of 3\n");
+        }
+        total_energy += LAMBDA * ewd_verlet_total_energy(pos_array, charge_array, verlet_list, n_particles, box_size);
     }
 
-    return E / 2;
+    return total_energy;
 }
 
-double compute_average_pair_distance(double *pos_array, double *charge_array, int n_particles, int space_dim)
+// Initialize positions in a cubic lattice
+void init_system_lattice(double *pos_array,
+                         double *charge_array,
+                         double *mass_array,
+                         int n_particles,
+                         double box_size,
+                         int lattice_type,
+                         int n_cell_per_row)
 {
-    double sum_pair_distance = 0;
-    FILE *file_distances = fopen("./output/file_distances.csv", "w");
-
-    for (int i = 0; i < n_particles - 1; i++)
+    struct Vec3
     {
+        double x;
+        double y;
+        double z;
+    } typedef Vec3;
 
-        for (int j = i + 1; j < n_particles; j++)
-        {
-            if (i == j)
-                continue;
+    // lattice_type 1 CC, 2 BCC, 4 FCC
 
-            double distance_square = 0;
+    Vec3 lattice_positions[lattice_type];
+    int basis_parity[lattice_type];
 
-            for (int k = 0; k < space_dim; k++)
-            {
-                distance_square += (pos_array[c(i, k)] - pos_array[c(j, k)]) * (pos_array[c(i, k)] - pos_array[c(j, k)]);
-            }
-
-            sum_pair_distance += sqrt(distance_square);
-        }
+    switch (lattice_type)
+    {
+    case 1: // CC
+        lattice_positions[0] = (Vec3){0, 0, 0};
+        basis_parity[0] = 0;
+        basis_parity[1] = 1;
+        basis_parity[2] = 1;
+        basis_parity[3] = 1;
+        break;
+    case 2: // BCC
+        lattice_positions[0] = (Vec3){0, 0, 0};
+        lattice_positions[1] = (Vec3){0.5, 0.5, 0.5};
+        basis_parity[0] = 0;
+        basis_parity[1] = 1;
+        break;
+    case 4: // FCC
+        lattice_positions[0] = (Vec3){0, 0, 0};
+        lattice_positions[1] = (Vec3){0, 0.5, 0.5};
+        lattice_positions[2] = (Vec3){0.5, 0.5, 0};
+        lattice_positions[3] = (Vec3){0.5, 0, 0.5};
+        basis_parity[0] = 0;
+        basis_parity[1] = 1;
+        basis_parity[2] = 1;
+        basis_parity[3] = 1;
+        break;
+    default:
+        break;
     }
 
-    return sum_pair_distance;
-}
+    double single_cell_length = (double)box_size / n_cell_per_row;
+    int n_particle_placed = 0;
 
-void metropolis_step_one_particle(double *energy_array, double *pos_array, double *charge_array, double delta, double temperature, int n_particles, int space_dim, long *accepted_counter)
-{
-    // Alocate an array of dj on the stack,
-    // this is used to keep track of the different direction and make the code independent on space dimension
-    double dj_array[space_dim];
-
-    for (int n = 0; n < n_particles; n++)
+    for (size_t n_cell_x = 0; n_cell_x < n_cell_per_row; n_cell_x++)
     {
-
-        // Select a random particle i
-        int i = (int)(drand48() * (n_particles - 1));
-        // NOTE: right now I am computing old and new energy, each is O(N)
-        double old_i_energy = compute_one_particle_energy(i, pos_array, charge_array, n_particles, space_dim);
-
-        for (int j = 0; j < space_dim; j++)
+        for (size_t n_cell_y = 0; n_cell_y < n_cell_per_row; n_cell_y++)
         {
-            // Random step in j direction between -delta and + delta
-            double dj = ((drand48() * 2) - 1) * delta;
-
-            // Refuse step if particle i in direction j out of the box
-            if (pos_array[c(i, j)] + dj > BOX_SIZE || pos_array[c(i, j)] + dj < 0)
+            for (size_t n_cell_z = 0; n_cell_z < n_cell_per_row; n_cell_z++)
             {
-                return;
+                for (size_t w = 0; w < lattice_type; w++)
+                {
+                    pos_array[c(n_particle_placed, 0)] = (n_cell_x + lattice_positions[w].x) * single_cell_length;
+                    pos_array[c(n_particle_placed, 1)] = (n_cell_y + lattice_positions[w].y) * single_cell_length;
+                    pos_array[c(n_particle_placed, 2)] = (n_cell_z + lattice_positions[w].z) * single_cell_length;
+
+                    int parity = (n_cell_x + n_cell_y + n_cell_z + basis_parity[w]) % 2;
+                    charge_array[n_particle_placed] = (parity == 0) ? 1.0 : -1.0;
+
+                    mass_array[n_particle_placed] = 1;
+                    n_particle_placed++;
+                }
             }
-            dj_array[j] = dj;
-        }
-        // Update position of particle i
-        for (int j = 0; j < space_dim; j++)
-        {
-            pos_array[c(i, j)] += dj_array[j];
-        }
-
-        /** NOTE: Since I am using compute_one_particle_energy I can not use the fact that the interaction between i and k
-         * is the same as k and i in order to cut the computation in half. Nevertheless it is usefull because in this
-         * way I can check out of the boundaries conditions for one particle at the time,
-         * instead of having to discard a full system step just because one particle
-         * felt off.
-         */
-        double new_i_energy = compute_one_particle_energy(i, pos_array, charge_array, n_particles, space_dim);
-
-        // double dE = new_i_energy - energy_array[i];
-        double dE = new_i_energy - old_i_energy;
-
-        // METROPOLIS ACCEPTANCE AND UPDATE energy_array
-        int accepted = 0;
-        double alpha = fmin(1, exp(-dE / temperature));
-        accepted = drand48() <= alpha;
-
-        // If the step is not accepted cancel the position update for the particle i
-        if (!accepted)
-        {
-            for (int j = 0; j < space_dim; j++)
-            {
-                pos_array[c(i, j)] -= dj_array[j];
-            }
-        }
-        else
-        {
-            // Update i_particle energy if step accepted
-            energy_array[i] = new_i_energy;
-            (*accepted_counter)++;
         }
     }
 }
 
-void metropolis_step(double *energy_array, double *pos_array, double *charge_array, double delta, double temperature, int n_particles, int space_dim, long *accepted_counter)
-{
-    // Alocate an array of dj on the stack,
-    // this is used to keep track of the different direction and make the code independent on space dimension
-    double dj_array[space_dim];
-
-    // Update one particle at the time. Better to check box boundaries
-    for (int i = 0; i < n_particles; i++)
-    {
-
-        int out_of_box = 0;
-
-        // NOTE: right now I am computing old and new energy, each is O(N)
-        double old_i_energy = compute_one_particle_energy(i, pos_array, charge_array, n_particles, space_dim);
-
-        for (int j = 0; j < space_dim; j++)
-        {
-            // Random step in j direction between -delta and + delta
-            double dj = ((drand48() * 2) - 1) * delta;
-
-            // Refuse step if particle i in direction j out of the box
-            if (pos_array[c(i, j)] + dj > BOX_SIZE || pos_array[c(i, j)] + dj < 0)
-            {
-                out_of_box = 1;
-                continue;
-            }
-
-            dj_array[j] = dj;
-        }
-
-        // Update position of particle i
-        if (out_of_box == 0)
-        {
-            for (int j = 0; j < space_dim; j++)
-            {
-                pos_array[c(i, j)] += dj_array[j];
-            }
-        }
-
-        /** NOTE: Since I am using compute_one_particle_energy I can not use the fact that the interaction between i and k
-         * is the same as k and i in order to cut the computation in half. Nevertheless it is usefull because in this
-         * way I can check out of the boundaries conditions for one particle at the time,
-         * instead of having to discard a full system step just because one particle
-         * felt off.
-         */
-        double new_i_energy = compute_one_particle_energy(i, pos_array, charge_array, n_particles, space_dim);
-
-        // double dE = new_i_energy - energy_array[i];
-        double dE = new_i_energy - old_i_energy;
-
-        // METROPOLIS ACCEPTANCE AND UPDATE energy_array
-        int accepted = 0;
-        double alpha = fmin(1, exp(-dE / temperature));
-        accepted = drand48() <= alpha;
-
-        // If the step is not accepted cancel the position update for the particle i
-        if (!accepted)
-        {
-            for (int j = 0; j < space_dim; j++)
-            {
-                pos_array[c(i, j)] -= dj_array[j];
-            }
-        }
-        else
-        {
-            // Update i_particle energy if step accepted
-            energy_array[i] = new_i_energy;
-            (*accepted_counter)++;
-        }
-    }
-}
-
-void init_system(double *pos_array, double *charge_array, double *mass_array)
+void init_system_random(double *pos_array,
+                        double *charge_array,
+                        double *mass_array,
+                        int n_particles,
+                        int space_dimension,
+                        double box_size)
 {
     for (size_t i = 0; i < n_particles; i++)
     {
-        for (size_t j = 0; j < SPACE_DIM; j++)
+        for (size_t j = 0; j < space_dimension; j++)
         {
-            // Uniform position distribution inside the square box
-            pos_array[c(i, j)] = drand48() * BOX_SIZE;
-            // vel_array[c(i, j)] = getRNDVelocity(1);
+            pos_array[c(i, j)] = drand48() * box_size; // Uniform position distribution inside the square box
         }
 
         switch (i % 2)
@@ -307,177 +209,584 @@ void init_system(double *pos_array, double *charge_array, double *mass_array)
     }
 }
 
-/* PRINT_PROGRESS
- *
- * Prints a terminal progress bar with percentage and estimated time remaining (ETA).
- *
- * Parameters:
- *   current     – current iteration (0 … total)
- *   total       – total number of iterations
- *   start_time  – the time (time_t) when the process started; used to compute ETA
- *
- * Behavior:
- *   - The function prints a character progress bar using "#" character.
- *   - It overwrites the same terminal line using '\r'.
- *   - ETA is computed from elapsed time and current progress and displayed as HH:MM:SS.
- *
- * Usage:
- *   Call this function periodically inside a loop to update the progress bar without
- *   significantly impacting performance.
- */
-void print_progress(size_t current, size_t total, clock_t start_time)
+// This function perform an update of all the system at once, hard to get good acceptance rate for stable configurations.
+double pb_metropolis_step_full_system(double old_energy, double *pos_array, const double *charge_array, double delta, double temperature, int n_particles, int space_dim, long *accepted_counter, double box_size)
 {
-    const int barWidth = 20;
-    double progress = (double)current / total;
-    int filled = progress * barWidth;
+    // Save old position configuration
+    // NOTE - This memory gets never free
+    static double *old_pos_array = NULL;
+    size_t total_array_size = sizeof(double) * n_particles * space_dim;
 
-    // Time elapsed
-    clock_t now = clock();
-    double elapsed = (double)(now - start_time) / CLOCKS_PER_SEC;
-
-    // ETA stimation
-    double eta = (progress > 0.0) ? elapsed * (1.0 - progress) / progress : 0.0;
-
-    // Conversion of ETA hh:mm:ss
-    int eta_h = (int)eta / 3600;
-    int eta_m = ((int)eta % 3600) / 60;
-    int eta_s = (int)eta % 60;
-
-    printf("\r[");
-
-    for (int i = 0; i < barWidth; i++)
+    if (old_pos_array == NULL)
     {
-        if (i <= filled)
-            printf("#");
-        else
-            printf(".");
+        old_pos_array = (double *)malloc(total_array_size);
+        if (old_pos_array == NULL)
+        {
+            fprintf(stderr, "Memory allocation failed for old_pos_array\n");
+            return NAN;
+        }
     }
 
-    printf("] %5.1f%%  ETA: %02d:%02d:%02d (hh:mm:ss)",
-           progress * 100, eta_h, eta_m, eta_s);
+    memcpy(old_pos_array, pos_array, total_array_size);
 
-    fflush(stdout);
+    // Update system: try to move each particle
+    for (int i = 0; i < n_particles; i++)
+    {
+        for (int j = 0; j < space_dim; j++)
+        {
+            double dj = ((drand48() * 2) - 1) * delta;
+
+            // NOTE: In periodic boundaries conditions there is no need to check for boundaries
+            pos_array[c(i, j)] += dj;
+        }
+    }
+
+    // Compute the new energy
+    double new_energy = pb_compute_total_energy(pos_array, charge_array, n_particles, space_dim, box_size, 1, 1);
+    double dE = new_energy - old_energy;
+
+    // Metropolis acceptance criterion
+    int accepted = 0;
+    double alpha = fmin(1, exp(-dE / temperature));
+    accepted = drand48() <= alpha;
+
+    // If the step is not accepted cancel the position update for the particle i
+    if (!accepted)
+    {
+        memcpy(pos_array, old_pos_array, total_array_size);
+
+        return old_energy;
+    }
+    else
+    {
+        (*accepted_counter)++;
+
+        // Bring the particle back to the first cell
+        for (size_t i = 0; i < n_particles; i++)
+        {
+            for (int j = 0; j < space_dim; j++)
+            {
+                pos_array[c(i, j)] = pb_wrap_position(pos_array[c(i, j)], box_size);
+            }
+        }
+
+        return new_energy;
+    }
 }
+
+// This function perform an update of all the system on one particle at the time, easier to get good acceptance rate but
+// it has highter temporal correlation
+double verlet_pb_metropolis_step_one_particle(double energy,
+                                              double *pos_array,
+                                              const double *charge_array,
+                                              const IndexesList_t *vl,
+                                              double delta,
+                                              double temperature,
+                                              int n_particles,
+                                              int space_dim,
+                                              long *accepted_counter,
+                                              double box_size,
+                                              double epsilon,
+                                              double sigma)
+{
+
+    /** In order to remove the bias caused by updating all the particle using always the
+     * same order we define a permutation array of indexes. At each metropolis step
+     * a new random permutation is used, ensuring that all the particles are updated but in
+     * different order. Based on literature this ensured a drop in time correlation.
+     */
+    static int *perm = NULL;
+    if (perm == NULL)
+    {
+        perm = (int *)malloc(n_particles * sizeof(int));
+        for (int i = 0; i < n_particles; i++)
+        {
+            perm[i] = i;
+        }
+    }
+
+    // NOTE: I have tested with and without this line of code and we move from an
+    // autocorrelation af 12 steps with to 145 without
+
+    for (int i = n_particles - 1; i > 0; i--)
+    {
+        // Swap two random indexes in the sub array 0,1,...,i
+        int j = (int)(drand48() * (i + 1));
+        int tmp = perm[i];
+        perm[i] = perm[j];
+        perm[j] = tmp;
+    }
+
+    static double *old_position = NULL;
+    if (old_position == NULL)
+    {
+        old_position = (double *)malloc(sizeof(double) * n_particles * space_dim);
+    }
+
+    memcpy(old_position, pos_array, n_particles * space_dim);
+
+    // Keep track of space shifts for the current particle
+    double steps_save[space_dim];
+
+    for (size_t p = 0; p < n_particles; p++)
+    {
+
+        int i = perm[p];
+
+        double old_energy = pb_verlet_i_lennar_jones_potential(i, pos_array, charge_array, vl, n_particles, space_dim, box_size, epsilon, sigma);
+        if (COULOMB_INTERACTION_ON)
+            old_energy += LAMBDA * ewd_verlet_i_short_energy(i, pos_array, charge_array, vl, n_particles, box_size);
+
+        // Random step in j direction between -delta and + delta
+        for (int j = 0; j < space_dim; j++)
+        {
+            double dj = ((drand48() * 2) - 1) * delta;
+
+            pos_array[c(i, j)] += dj;
+            steps_save[j] = dj;
+        }
+
+        double new_energy = pb_verlet_i_lennar_jones_potential(i, pos_array, charge_array, vl, n_particles, space_dim, box_size, epsilon, sigma);
+        if (COULOMB_INTERACTION_ON)
+            new_energy += LAMBDA * ewd_verlet_i_short_energy(i, pos_array, charge_array, vl, n_particles, box_size);
+
+        double dE = new_energy - old_energy;
+
+        if (COULOMB_INTERACTION_ON)
+            dE += ewd_delta_long_energy(i, pos_array, old_position, charge_array, box_size);
+
+        /** Metropolis acceptance criterion
+         *
+         * @brief If the step is accepted update the current total energy using dE
+         * and apply periodic boundary condition bringing all the particle back
+         * to the first cubic cell.
+         *
+         * If the step is refused, undo the space step using the steps dj
+         * saved in steps_save.
+         */
+        int accepted = 0;
+        double alpha = fmin(1, exp(-dE / temperature));
+        accepted = drand48() <= alpha;
+
+        if (accepted)
+        {
+            (*accepted_counter)++;
+
+            energy += dE;
+
+            if (COULOMB_INTERACTION_ON)
+                ewd_update_S_K(i, pos_array, old_position, charge_array, box_size);
+
+            for (int j = 0; j < space_dim; j++)
+            {
+                pos_array[c(i, j)] = pb_wrap_position(pos_array[c(i, j)], box_size);
+                old_position[c(i, j)] = pos_array[c(i, j)];
+            }
+        }
+        else
+        {
+            for (int j = 0; j < space_dim; j++)
+            {
+                pos_array[c(i, j)] -= steps_save[j];
+            }
+        }
+    }
+
+    return energy;
+}
+
+int test_same_energy_verlet_and_not_verlet(int n_particles,
+                                           double box_size,
+                                           const IndexesList_t *verlet_list,
+                                           const double *pos_array,
+                                           const double *charge_array,
+                                           int space_dimension,
+                                           double epsilon,
+                                           double sigma,
+                                           double tollerance)
+{
+
+    double no_verlet_energy = pb_compute_total_energy(pos_array, charge_array, n_particles, space_dimension, box_size, epsilon, sigma);
+    double verlet_energy = pb_verlet_compute_total_energy(pos_array, charge_array, verlet_list, n_particles, space_dimension, box_size, epsilon, sigma);
+    double relative_error = fabs(verlet_energy - no_verlet_energy) / fabs(verlet_energy);
+    int passed = relative_error < tollerance;
+
+    LOG_TEST("same energy estimation with and without verlet list\n");
+
+    const int n = 20;
+
+    fprintf(stderr, "%-*s : %+15.5E\n", n, "Verlet energy", verlet_energy);
+    fprintf(stderr, "%-*s : %+15.5E\n", n, "No-Verlet energy", no_verlet_energy);
+    fprintf(stderr, "%-*s : %+15.5E\n", n, "Tollerance", tollerance);
+    fprintf(stderr, "%-*s : %+15.5E\n", n, "Relative difference", relative_error);
+    fprintf(stderr, "\n");
+
+    if (passed == 1)
+    {
+        LOG_TEST_PASSED;
+    }
+    else
+    {
+        LOG_TEST_FAILED;
+        exit(EXIT_FAILURE);
+    }
+
+    return passed;
+}
+
+// ------------------------------------------------------------------
 
 int main(int argc, char const *argv[])
 {
-    // omp_set_num_threads(8);
-    //  Set seed for reproducibility
-    srand48(SEED);
 
-    if (TEMPERATURE <= 0)
+    printf("\n");
+    printf("=====================================\n");
+    printf(STYLE_BOLD "        STARTING SIMULATION\n" STYLE_RESET);
+    printf("=====================================\n");
+
+    printf("Coluomb : ");
+    if (COULOMB_INTERACTION_ON)
     {
-        printf("ERROR: Temperature must be positive");
-        exit(EXIT_FAILURE);
+        printf(STYLE_BOLD "ON\n" STYLE_RESET);
+        printf("Lambda  : %.f\n", LAMBDA);
+    }
+    else
+    {
+        printf(STYLE_BOLD "OFF\n" STYLE_RESET);
+    }
+    printf("-------------------------------------\n");
+
+    const int seed = 42;
+    srand48(seed);
+
+    /**
+     * SIMULATION PARAMETERS
+     */
+
+    // Argon Crystal
+    const int lattice_type = 4; // Lattice type FCC
+    const int n_cell_per_row = 5;
+    const double density = 0.86;
+
+    // In reduced unit keep those at 1
+    const double lennar_jones_epsilon = 1;
+    const double lennar_jones_sigma = 1;
+
+    const int space_dimension = 3; // 1D - 2D - 3D - ... - nD
+
+    const int n_particles = pow(n_cell_per_row, 3) * lattice_type;
+    const double box_size = pow(n_particles / density, 1.0 / space_dimension);
+
+    /** Max space step in metropolis update,
+     *  should be << box_size and give an acceptance rate of 40-70%
+     */
+    const double space_step = 0.05;
+
+    const int restart_from_checkpoint = 0;
+    const char *check_point_file_name = "./state_saves_binaries/checkpoint_T1.500.bin";
+
+    const double VERLET_MAX_NEIGHTBOR_DISTANCE = 3 * lennar_jones_sigma;
+    const double SKIN = 0.5 * VERLET_MAX_NEIGHTBOR_DISTANCE;
+
+    // Use the same r_c for verlet list and lennar jones
+    LENNAR_JONES_CUT_OFF_IN_SIGMA_UNIT = VERLET_MAX_NEIGHTBOR_DISTANCE / lennar_jones_sigma;
+
+    printf("N_particles : %d\n", n_particles);
+    printf("Box_size    : %.3f\n", box_size);
+    printf("Density     : %.3f\n", density);
+
+    if (space_step > box_size * 0.05)
+    {
+        LOG_WARNING("space_step could be too hight for the current box_size.\n"
+                    "Space_step = %lf, Box_size = %lf\n",
+                    space_step, box_size);
     }
 
-    int total_vel_pos_array_size = n_particles * SPACE_DIM;
-
-    //-------------------------------------------
-    // Positions and velocities are store in an array of size (N * SPACE_DIM) where
-    // the j component of the i particle is stored at index (SPACE_DIM * i + j).
-    // In order to retrieve the correct index for component j of particle i use the macro "c(i,j)"
+    /**
+     * Positions are store in a flattered array of size (N * SPACE_DIM), where
+     * the j component of the i particle is stored at index (SPACE_DIM * i + j).
+     * In order to retrieve the correct index for component j of particle i use the macro "c(i,j)" defined
+     * in constants.c.
+     */
+    const int total_vel_pos_array_size = n_particles * space_dimension;
 
     double *pos_array = (double *)malloc(total_vel_pos_array_size * sizeof(double));
     if (pos_array == NULL)
-        exit(EXIT_FAILURE);
-
-    double *vel_array = (double *)malloc(total_vel_pos_array_size * sizeof(double));
-    if (vel_array == NULL)
-        exit(EXIT_FAILURE);
+        LOG_FATAL("Error allocating pos_array");
 
     double *charge_array = (double *)malloc(n_particles * sizeof(double));
     if (charge_array == NULL)
-        exit(EXIT_FAILURE);
+        LOG_FATAL("Error allocating charge_array");
 
     double *mass_array = (double *)malloc(n_particles * sizeof(double));
     if (mass_array == NULL)
-        exit(EXIT_FAILURE);
-
-    double *energy_array = (double *)malloc(n_particles * sizeof(double));
-    if (energy_array == NULL)
-        exit(EXIT_FAILURE);
-
-    FILE *start_position_file = fopen("./output/start_position_file.csv", "w");
-    if (start_position_file == NULL)
-    {
-        printf("No output folder");
-        exit(EXIT_FAILURE);
-    }
-
-    FILE *end_position_file = fopen("./output/end_position_file.csv", "w");
-    if (end_position_file == NULL)
-        exit(EXIT_FAILURE);
+        LOG_FATAL("Error allocating mass_array");
 
     FILE *energy_file = fopen("./output/energy.csv", "w");
     if (energy_file == NULL)
-        exit(EXIT_FAILURE);
+        LOG_FATAL("Error opening energy_file");
 
-    //-------------------------------------------
+    setvbuf(energy_file, NULL, _IOFBF, 1 << 20); // 1 MB buffer, used to increase performance
 
-    // Init system
-    init_system(pos_array, charge_array, mass_array);
+    /**
+     * And estimate of g(r) is computed using binning,
+     * the following parameters define the binning number and size
+     */
+    const double max_radius = box_size / 2; // After box_size/2 one can see artifact emerges from the conflict between the spherical nature of g(r) and the cubic cell
+    const int N_bins = 600;
+    const double bin_interval = max_radius / N_bins;
+    int n_radial_distributions_performed = 0; // Keep track of how many times the g(r) is computed and summed to the bins, used to normalize
 
-    // Init energy array
-    for (size_t i = 0; i < n_particles; i++)
+    // Array and file for keep_track of g(r)
+    double *bin_counting_array = (double *)calloc(N_bins, sizeof(double)); // Bins array
+    FILE *radial_distribution_file = fopen("./output/radial_distribution.csv", "w");
+
+    // Array and file for keep_track of g+-(r)
+    double *bin_counting_array_differ = (double *)calloc(N_bins, sizeof(double)); // Bins array
+    FILE *radial_distribution_file_differ = fopen("./output/radial_distribution_differ.csv", "w");
+
+    // Array and file for keep_track of g--(r)
+    double *bin_counting_array_equal = (double *)calloc(N_bins, sizeof(double)); // Bins array
+    FILE *radial_distribution_file_equal = fopen("./output/radial_distribution_equal.csv", "w");
+
+    double energy = 0;
+
+    if (restart_from_checkpoint)
     {
-        energy_array[i] = compute_one_particle_energy(i, pos_array, charge_array, n_particles, SPACE_DIM);
+        load_checkpoint_binary(check_point_file_name, pos_array, n_particles, space_dimension, &energy);
+    }
+    else
+    {
+        init_system_lattice(pos_array, charge_array, mass_array, n_particles, box_size, lattice_type, n_cell_per_row);
+        // init_system_random(pos_array, charge_array, mass_array, n_particles, space_dimension, box_size);
     }
 
-    save_particle_state(start_position_file, pos_array, charge_array, n_particles, SPACE_DIM);
-    printf("Start energy: %f\n", array_to_total_energy(energy_array, n_particles));
+    save_particle_state_csv("./output/start_position_file.csv", pos_array, charge_array, n_particles, space_dimension);
 
-    //----------------------------------
-    // START Evaluate the execution time
-    clock_t begin = clock();
-    //----------------------------------
+    /** |------VERLET LIST------|
+     *
+     * @brief The energy computation is O(N^2). O(N) for each particle and the total is N * O(N).
+     * This is not feasable for large N, so we use a techique called verlet List, which we will briefly explain here.
+     *
+     * The short range potentials like Lennar Jones and real parte of Ewald Summation can be truncated without loss
+     * of accuracy, each interaction above r = r_c are not computed. Using this fact the idea is the following:
+     * for each particle "i" we define an array of indexes, in this array are contained the indexes of all the particle
+     * that are no more than r_c + r_skin away from "i". When the energy has to be computed we can loop over these lists
+     * instead of all the particles.
+     * r_skin is used to ensure that we can wait a certain number of metropolis step before rebuild the lists (Remember that
+     * building the list is actually O(N^2), if we have to do it at every step the would be no increase in performance).
+     *
+     * The alghorithm using verlet is the following:
+     *
+     * 1) given the particle array build N lists, one for each particle.
+     * 2) compute the energy looping over the lists.
+     * 3) perform a metropolis step and then check if any of the particle has move more than r_skin (this checking is O(N)),
+     * if it's the case we need to update the list, if not we can perform poit 3) again.
+     *
+     * The hard part is to balance the frequency of list rebuild and number of particle per list. One in theory wants low
+     * rebuild frequency and low number of particle per list. This is the case for low density states where the particle are
+     * far apart they take a lot of metropolis steps to actually move near another particle.
+     *
+     * NOTE: is there a way to compute the optimal skin based on density, N and step_size?
+     * I think one can do that by approximating the metropolis step as a random walk and using the fact that
+     * we how which std it has, sqrt(N).
+     */
+    double *old_pos_array = (double *)malloc(total_vel_pos_array_size * sizeof(double));
+    if (old_pos_array == NULL)
+        LOG_FATAL("Error allocating old_pos_array");
 
-    long accepted_steps = 0;
+    IndexesList_t *verlet_list = (IndexesList_t *)malloc(sizeof(IndexesList_t) * n_particles);
+    if (verlet_list == NULL)
+        LOG_FATAL("Error allocating verlet_list");
 
-    for (size_t i = 0; i < N_METROPOLIS_STEPS; i++)
+    // Build verlet list
+    verlet_pb_build_list(pos_array, old_pos_array, verlet_list, n_particles, space_dimension, box_size, VERLET_MAX_NEIGHTBOR_DISTANCE, SKIN);
+
+    printf("-------------------------------------\n");
+    printf("VERLET_MAX_NEIGHTBOR_DISTANCE   : %.2f\n", VERLET_MAX_NEIGHTBOR_DISTANCE);
+    printf("Max verlet count                : %d\n", get_max_verlet_count(verlet_list, n_particles));
+    printf("-------------------------------------\n");
+
+    // Optimize Ewald Summation Parameters
+    if (COULOMB_INTERACTION_ON)
     {
-        metropolis_step(energy_array, pos_array, charge_array, STEP_SIZE, TEMPERATURE, n_particles, SPACE_DIM, &accepted_steps);
+        // NOTE
+        optimizeParameter(1e-1, box_size, charge_array, n_particles);
 
-        // Progress Bar
-        if (i % PRINT_INTERVAL == 0)
+        ewd_print_parameters();
+        printf("-------------------------------------\n");
+
+        if (REAL_CUTOFF > VERLET_MAX_NEIGHTBOR_DISTANCE)
         {
-            print_progress(i, N_METROPOLIS_STEPS, begin);
+            LOG_FATAL("REAL_CUTOFF greater than VERLET_MAX_NEIGHTBOR_DISTANCE.\n"
+                      "Some real space coulomb interactions are excluded by the verlet list being to strict.\n"
+                      "Increase VERLET_MAX_NEIGHTBOR_DISTANCE or decrease REAL_CUTOFF by optimizing Ewald with using a larger error.");
+        }
+        else
+        {
+
+            /** If REAL_CUTOFF is less than VERLET_MAX_NEIGHTBOR_DISTANCE using the latter
+             *  one is computationally the same, but is more precise
+             */
+            REAL_CUTOFF = VERLET_MAX_NEIGHTBOR_DISTANCE;
+
+            LOG_INFO("REAL_CUTOFF less than VERLET_MAX_NEIGHTBOR_DISTANCE.\n"
+                     "REAL_CUTOFF set equal to VERLET_MAX_NEIGHTBOR_DISTANCE to increase accuracy.");
+            printf("-------------------------------------\n");
+        }
+    }
+
+    // Initialization of S(K) vector in the starting position
+    ewd_init_S_K(pos_array, charge_array, n_particles, box_size);
+
+    if (!restart_from_checkpoint)
+    {
+        energy = pb_verlet_compute_total_energy(pos_array, charge_array, verlet_list, n_particles, space_dimension, box_size, lennar_jones_epsilon, lennar_jones_sigma);
+    }
+
+    printf("Start energy        : %.6E\n", energy);
+
+    // Correction to the energy per particle due to cut off
+    const double LJ_tail_correction = lennard_jones_tail_correction_per_particle(density, lennar_jones_epsilon, lennar_jones_sigma, LENNAR_JONES_CUT_OFF_IN_SIGMA_UNIT) * n_particles;
+    printf("LJ tail correction  : %.6E\n", LJ_tail_correction);
+    printf("-------------------------------------\n");
+
+    test_same_energy_verlet_and_not_verlet(n_particles, box_size, verlet_list, pos_array, charge_array, space_dimension, lennar_jones_epsilon, lennar_jones_sigma, 1e-6);
+    printf("-------------------------------------\n");
+
+    if (COULOMB_INTERACTION_ON)
+    {
+        /** This test measure the difference in ewald energy estimation incresing the
+         *  RECIPROCAL_RANGE and REAL_RANGE by one. The real part differenc should be in the
+         * order of the choosed error. To get a smaller difference increase REAL_CUT_OFF (remember to increase
+         * verlet_max_neightbor_distance too).
+         *
+         * NOTE: right now I am imposing a relative error of 1% on long + short ewald energy,
+         * I am not considering the self one because it does not count for metropolis being constant.
+         */
+        const double tollerance = 1e-2;
+        ewd_test_increase_range(pos_array, charge_array, n_particles, box_size, tollerance);
+    }
+
+    /** |------ SINGLE TEMPERATURE SIMULATION ------|
+     *
+     * Starting from a start position for all the particle N metropolis steps are performed
+     * keeping the temperature fixed. Usefull to study the equilibrium radial distribution and
+     * equilibrium thermodinamic quantities.
+     *
+     * Note that all the statistics has to be performed AFTER reaching equilibrum and keeping in mind that
+     * there is time correlation between metropolis steps. This is not a huge problem for g(r) but it is
+     * when we compute the std of thermodinamic quantities.
+     *
+     * Following test has been succesfully performed (all starting from FCC lattice with only lennar jones potential):
+     *
+     * - (density = 0.1, T = 1.1) gas behaviour can be observed. g(r) has a strong peak around 1 (the minimum of lennar jones potential) and
+     * for hight distances the density is constant.
+     * - (density = 0.7, T = 1.1) liquid behaviour can be observed. g(r) has a few shallow peaks.
+     * - (density = 1.3, T = 1.1) solid behaviour can be observed. g(r) has a lot of strong peaks.
+     *
+     * Only LJ varing T fixes rho
+     * - (density = 1, N = 864, T = 1)  Solid
+     * - (density = 1, N = 864, T = 1.5)  Solid
+     * - (density = 1, N = 864, T = 2)  Liquid
+     */
+
+    printf("=====================================\n");
+    printf(STYLE_BOLD "        STARTING SIMULATION\n" STYLE_RESET);
+    printf("=====================================\n");
+
+    const int N_data_steps = 10000;
+    const int N_thermalization_steps = 100000;
+    const int N_metropolis_steps = N_thermalization_steps + N_data_steps;
+    double temperature = 8.50E-01;
+
+    printf(" Temperature : %.3f\n", temperature);
+    printf("-------------------------------------\n");
+
+    // Keep track of how frequently the verlet lists are updated
+    int counting_verlet = 0;
+    int min_counting_verlet = INT32_MAX;
+    long metropolis_accepted_steps = 0;
+
+    clock_t begin_time = clock();
+    for (size_t i = 0; i < N_metropolis_steps; i++)
+    {
+        counting_verlet++;
+
+        // Update system using metropolis 1 particle step
+        energy = verlet_pb_metropolis_step_one_particle(energy, pos_array, charge_array, verlet_list, space_step, temperature, n_particles, space_dimension, &metropolis_accepted_steps, box_size, lennar_jones_epsilon, lennar_jones_sigma);
+
+        // Check if the verlet list need to be rebuild
+        if (verlet_pb_needs_rebuild(pos_array, old_pos_array, n_particles, space_dimension, box_size, SKIN))
+        {
+            verlet_pb_build_list(pos_array, old_pos_array, verlet_list, n_particles, space_dimension, box_size, VERLET_MAX_NEIGHTBOR_DISTANCE, SKIN);
+            if (counting_verlet < min_counting_verlet)
+            {
+                min_counting_verlet = counting_verlet;
+            }
+            counting_verlet = 0;
+        }
+
+        if (i % (N_metropolis_steps / 100) == 0)
+        {
+            // Progress Bar
+            print_progress(i, N_metropolis_steps, begin_time);
+            printf(" - UpdateMinSteps: %d", min_counting_verlet);
+
+            fflush(stdout);
             fflush(energy_file);
         }
 
-        // Init energy array
-        for (size_t i = 0; i < n_particles; i++)
+        // Trashold for termalization
+        if ((i > N_thermalization_steps) & (i % 10 == 0))
+        // if (i > 500 && i < 30000)
         {
-            energy_array[i] = compute_one_particle_energy(i, pos_array, charge_array, n_particles, SPACE_DIM);
+            n_radial_distributions_performed++;
+
+            // Compute all the different g(r)
+            radial_distribution_all(pos_array, charge_array, n_particles, space_dimension, box_size, bin_counting_array, bin_counting_array_equal, bin_counting_array_differ, N_bins, bin_interval);
         }
-        fprintf(energy_file, "%lf\n", array_to_total_energy(energy_array, n_particles));
+
+        if (i > 0)
+        {
+            fprintf(energy_file, "%lf\n", energy);
+        }
     }
 
-    // Clear terminal
+    // Clear terminal and print end simulation info
     printf("\r\033[2K");
+    printf("Min number of step before update: %d\n", min_counting_verlet);
+    printf("Accepted step: %ld / %d, %.2f percent\n", metropolis_accepted_steps, N_metropolis_steps * n_particles, (float)metropolis_accepted_steps / (float)(N_metropolis_steps * n_particles));
+    printf("End energy: %f\n", energy);
+    printf("=====================================\n");
 
-    //----------------------------------
-    clock_t end = clock();
-    double time_spent = (double)(end - begin) / CLOCKS_PER_SEC;
-    printf("Total time: %.0lf ms\n", time_spent * 1000);
-    // END total time evaliation
-    //----------------------------------
+    save_particle_state_csv("./output/end_position_file.csv", pos_array, charge_array, n_particles, space_dimension);
 
-    printf("Accepted step: %lf\n", accepted_steps / ((double)N_METROPOLIS_STEPS * n_particles));
-    printf("Average pair distance: %lf\n", compute_average_pair_distance(pos_array, charge_array, n_particles, SPACE_DIM));
-    printf("End energy: %f\n", array_to_total_energy(energy_array, n_particles));
+    // Normalization of bins in g(r)
+    for (size_t i = 0; i < N_bins; i++)
+    {
+        bin_counting_array[i] = (double)bin_counting_array[i] * 2 / (density * n_particles * n_radial_distributions_performed * (4 * PI / 3) * (pow((i + 1) * bin_interval, 3) - pow(i * bin_interval, 3)));
+        bin_counting_array_differ[i] = (double)bin_counting_array_differ[i] * 2 / (density * n_particles / 2 * n_radial_distributions_performed * (4 * PI / 3) * (pow((i + 1) * bin_interval, 3) - pow(i * bin_interval, 3)));
+        bin_counting_array_equal[i] = (double)bin_counting_array_equal[i] * 2 / (density * n_particles / 2 * n_radial_distributions_performed * (4 * PI / 3) * (pow((i + 1) * bin_interval, 3) - pow(i * bin_interval, 3)));
+    }
 
-    save_particle_state(end_position_file, pos_array, charge_array, n_particles, SPACE_DIM);
+    // Save all g(r) into file
+    for (size_t j = 0; j < N_bins; j++)
+    {
+        double r = (j + 0.5) * bin_interval;
+        fprintf(radial_distribution_file, "%f;%f\n", r, bin_counting_array[j]);
+        fprintf(radial_distribution_file_differ, "%f;%f\n", r, bin_counting_array_differ[j]);
+        fprintf(radial_distribution_file_equal, "%f;%f\n", r, bin_counting_array_equal[j]);
+    }
 
     free(pos_array);
-    free(vel_array);
     free(mass_array);
     free(charge_array);
-    free(energy_array);
+    free(verlet_list);
+    free(old_pos_array);
 
-    fclose(start_position_file);
-    fclose(end_position_file);
     fclose(energy_file);
+    fclose(radial_distribution_file);
 
     return 0;
 }

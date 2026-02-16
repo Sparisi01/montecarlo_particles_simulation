@@ -1,5 +1,5 @@
-#ifndef CHECKPOINTS_HANDLER_C
-#define CHECK_POINT_HANDLER_C
+#ifndef CHECK_POINTS_HANDLER_C
+#define CHECK_POINTS_HANDLER_C
 
 #include <stdio.h>
 #include <stdlib.h>

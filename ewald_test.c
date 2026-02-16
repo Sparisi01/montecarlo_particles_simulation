@@ -1,3 +1,22 @@
+/**
+ * @file test_ewald.c
+ * @brief Test suite for Ewald summation implementation.
+ *
+ * This file contains a collection of numerical tests for validating
+ * the correctness and stability of the Ewald summation algorithm
+ * implemented in "src/ewald.c".
+ *
+ * Implemented tests:
+ * - Convergence of total energy with respect to alpha parameter
+ * - Energy invariance under spatial translation
+ * - Consistency between brute-force and incremental long-range energy updates
+ *
+ * The tests validate:
+ * - Numerical stability
+ * - Translational invariance
+ * - Correctness of delta-energy updates
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
