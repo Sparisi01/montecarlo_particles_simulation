@@ -16,8 +16,8 @@
 #include "src/radial_distribution.c"
 
 // Choose type of simulation
-const double LAMBDA = 20; // For what lambda is see latex paper section "Units"
-const int COULOMB_INTERACTION_ON = (LAMBDA != 0);
+const double LAMBDA = 0; // For what lambda is see latex paper section "Units"
+const int COULOMB_INTERACTION_ON = 0;
 
 /**
  * @brief Save particles position and charge state in a csv file, easy to read in python for data analysis.
@@ -463,12 +463,11 @@ int main(int argc, char const *argv[])
      * SIMULATION PARAMETERS
      */
 
-    // Argon Crystal
     const int lattice_type = 4; // Lattice type FCC
     const int n_cell_per_row = 5;
     const double density = 0.86;
 
-    // In reduced unit keep those at 1
+    // In reduced unit keep those two at 1
     const double lennar_jones_epsilon = 1;
     const double lennar_jones_sigma = 1;
 
@@ -747,10 +746,7 @@ int main(int argc, char const *argv[])
             radial_distribution_all(pos_array, charge_array, n_particles, space_dimension, box_size, bin_counting_array, bin_counting_array_equal, bin_counting_array_differ, N_bins, bin_interval);
         }
 
-        if (i > 0)
-        {
-            fprintf(energy_file, "%lf\n", energy);
-        }
+        fprintf(energy_file, "%lf\n", energy);
     }
 
     // Clear terminal and print end simulation info
