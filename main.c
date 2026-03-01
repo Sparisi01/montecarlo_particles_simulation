@@ -17,7 +17,7 @@
 
 // Choose type of simulation
 const double LAMBDA = 0; // For what lambda is see latex paper section "Units"
-const int COULOMB_INTERACTION_ON = 0;
+const int COULOMB_INTERACTION_ON = (LAMBDA != 0);
 
 /**
  * @brief Save particles position and charge state in a csv file, easy to read in python for data analysis.
@@ -610,7 +610,9 @@ int main(int argc, char const *argv[])
     if (COULOMB_INTERACTION_ON)
     {
         // NOTE
-        optimizeParameter(1e-1, box_size, charge_array, n_particles);
+
+        const double ewald_error = 1e-1;
+        optimizeParameter(ewald_error, box_size, charge_array, n_particles);
 
         ewd_print_parameters();
         printf("-------------------------------------\n");

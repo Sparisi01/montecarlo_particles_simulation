@@ -1,41 +1,27 @@
-# Monte Carlo particle simulation under long and short range interaction
+# Metropolis Monte Carlo Particle Simulations of Coupled Lennard-Jones and Coulomb Potential under Periodic Boundary Conditions
 
-Build the project using the given ./build.sh to ensure the creation of all the needed folder.
+## Abstract
 
-## Results from simulation of a pure Lenaard-Jones system ($\lambda = 0$)
+We present Monte Carlo simulations of a three-dimensional system of particles interacting via Lennard–Jones and Coulomb potentials under periodic boundary conditions. Equilibrium configurations are generated using the Metropolis algorithm within the canonical ensemble. Short-range interactions are treated using a cutoff scheme combined with a Verlet neighbor list, while long-range Coulomb interactions are computed via Ewald summation with optimized parameters. The implementation is validated against reference data for the pure Lennard–Jones fluid. We then investigate the effect of increasing ionic coupling strength on structural properties, analyzing energy and radial distribution functions. The results demonstrate the efficiency of the numerical approach and reveal a transition from liquid-like to strongly correlated ionic structures at high coupling strengths.
 
-Results from simulation of a pure LJ system, compared with the NIST reference data.  
-In the table can be found in order: temperature, density, mean energy per particle and mean energy per particle (NIST) in reduced units, followed by acceptance rate and step correlation.  
-Energy errors are estimated as the standard deviation of the energy divided by the square root of the effective number of uncorrelated samples \( $N_{step} / 2\tau$ \) and it is interpreted as a 68% confidence level.
 
-| T    | ρ     | U/N (sim)                | U/N (NIST)               | Pₐ  | τ   |
-|------|-------|--------------------------|--------------------------|-----|-----|
-| 0.85 | 0.001 | -0.009799 ± 1.1e-5       | -0.01032 ± 2e-5          | 99% | 0.5 |
-| 0.85 | 0.007 | -0.07214 ± 3e-5          | -0.07283 ± 1.3e-4        | 99% | 0.5 |
-| 0.85 | 0.776 | -5.511 ± 2e-3            | -5.5121 ± 4e-4           | 50% | 206 |
-| 0.85 | 0.86  | -6.023 ± 3e-3            | -6.0305 ± 2.3e-3         | 42% | 289 |
+## Compilation and Usage
 
-### Equilibrium radial density functions $g(r)$
+Compile and run the `main.c` file using the given `build.sh` file. Clang is required,
 
-![image info](./analysis/Pure_LJ_nist/g2.png)
-![image info](./analysis/Pure_LJ_nist/g1.png)
+In the current form, all simulation setup has to be made inside the `main.c` file before compilation. In the following a list of variable that control the simulation:
 
-## Results from simulation of a Lennard-Jones + Coulomb system ($\lambda \not= 0$)
+-  `double LAMBDA`: 
+- `int lattice_type`: choose starting position lattice type (1 CC, 2 BCC, 4 FCC).
+- `int n_cell_per_row`: number of lattice cell per row
+- `double density`: particle numerical density
+- `int space_dimension`: choose the dimension of the position space. Note that Ewald Summation is only implemented for `space_dimension = 3`, If `LAMBDA != 0`, `space_dimension` must be 3,
+ - `double temperature`: temperature used in the Metropolis Algorithm.
+- `int N_thermalization_steps`: metropolis thermalization step.
+- `int N_data_steps`: metropolis data step.
 
-Results from simulation of a Lennard-Jones + Coulomb system as the coupling constant λ varies.
+- `double VERLET_MAX_NEIGHTBOR_DISTANCE`: default value `3`.
+- `double SKIN`: skinn radius in `VERLET_MAX_NEIGHTBOR_DISTANCE` units.
+- ` double ewald_error`: desired Ewald Summation statistical error.
 
-Energy errors are estimated as the standard deviation of the energy divided by the square root of the effective number of uncorrelated samples and it is intereted as 68% confidence level.
-
-| T    | ρ    | λ   | U/N              | P_A | τ   |
-|------|------|-----|------------------|-----|-----|
-| 0.85 | 0.86 | 0   | -6.030 ± 0.006   | 40% | 291 |
-| 0.85 | 0.86 | 0.1 | -6.015 ± 0.007   | 43% | 74  |
-| 0.85 | 0.86 | 1   | -6.546 ± 0.007   | 43% | 72  |
-| 0.85 | 0.86 | 5   | -9.195 ± 0.011   | 42% | 158 |
-| 0.85 | 0.86 | 10  | -12.738 ± 0.010  | 41% | 124 |
-| 0.85 | 0.86 | 20  | -17.505 ± 0.005  | 66% | 123 |
-| 0.85 | 0.86 | 50  | -35.393 ± 0.009  | 48% | 316 |
-
-![image info](./analysis/Coulomb_LJ_coupling/lambda_coupling.png)
-
-Ionic coupling radial distribution  as $\lambda$ varies. $g_D$ and $g_S$ are plotted (For a formal definition, refer to subsection~\ref{subsec:rad_distribution}). For $\lambda$ equal 20 and 50 a strong second peak in $g_D$ appears, the distance between the two maxima is plotted as $\Delta r$. The uncertainty on $\Delta r$ comes from an assumed uniform distribution over the bins containing the two maximum.
+At the end of the simulation `energy` and `radial_distribution` data are saved as `.csv` files in to the `output` folder. The `output` folder is automatically created by `build.sh` if not present.
