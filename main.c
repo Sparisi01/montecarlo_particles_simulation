@@ -471,7 +471,7 @@ int main(int argc, char const *argv[])
     const double lennar_jones_epsilon = 1;
     const double lennar_jones_sigma = 1;
 
-    const int space_dimension = 3; // 1D - 2D - 3D - ... - nD
+    const int space_dimension = SPACE_DIM;
 
     const int n_particles = pow(n_cell_per_row, 3) * lattice_type;
     const double box_size = pow(n_particles / density, 1.0 / space_dimension);
