@@ -32,7 +32,7 @@ double pb_compute_total_energy(const double *pos_array,
                                double sigma)
 {
     double total_energy = 0;
-    total_energy += pb_total_lennar_jones_energy(pos_array, charge_array, n_particles, space_dim, box_size, epsilon, sigma);
+    total_energy += lj_total_energy(pos_array, charge_array, n_particles, space_dim, box_size, epsilon, sigma);
 
     if (COULOMB_INTERACTION_ON)
     {
@@ -56,7 +56,7 @@ double pb_verlet_compute_total_energy(const double *pos_array,
                                       double sigma)
 {
     double total_energy = 0;
-    total_energy += pb_verlet_tot_lennar_jones_energy(pos_array, charge_array, verlet_list, n_particles, space_dim, box_size, epsilon, sigma);
+    total_energy += lj_verlet_total_energy(pos_array, charge_array, verlet_list, n_particles, space_dim, box_size, epsilon, sigma);
 
     if (COULOMB_INTERACTION_ON)
     {
@@ -142,15 +142,15 @@ int main(int argc, char const *argv[])
         IndexesList_t *verlet_list = (IndexesList_t *)malloc(sizeof(IndexesList_t) * n_particles);
 
         // Build verlet list
-        verlet_pb_build_list(pos_array, old_pos_array, verlet_list, n_particles, space_dimension, box_size, VERLET_MAX_NEIGHTBOR_DISTANCE, SKIN);
+        verlet_build_list(pos_array, old_pos_array, verlet_list, n_particles, space_dimension, box_size, VERLET_MAX_NEIGHTBOR_DISTANCE, SKIN);
 
         printf("-------------------------------------\n");
         printf("VERLET_MAX_NEIGHTBOR_DISTANCE   : %.2f\n", VERLET_MAX_NEIGHTBOR_DISTANCE);
-        printf("Max verlet count                : %d\n", get_max_verlet_count(verlet_list, n_particles));
+        printf("Max verlet count                : %d\n", verlet_get_max_neightbours(verlet_list, n_particles));
         printf("-------------------------------------\n");
 
         // NOTE
-        optimizeParameter(1, box_size, charge_array, n_particles);
+        ewd_optimizeParameter(1, box_size, charge_array, n_particles);
 
         ewd_print_parameters();
         printf("-------------------------------------\n");
@@ -173,7 +173,7 @@ int main(int argc, char const *argv[])
                 pb_compute_total_energy(pos_array, charge_array, n_particles, space_dimension, box_size, EPSILON, SIGMA);
 
                 // Progress Bar
-                print_progress(i, N_step, begin_time);
+                progressBar_print(i, N_step, begin_time);
             }
         }
 

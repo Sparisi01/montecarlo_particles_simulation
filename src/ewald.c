@@ -91,7 +91,7 @@ errorsDifference(double error, double s, double Q2, double cell_length)
     return exp(-(s * s)) / (pow(s, 3. / 2)) * Q2 * sqrt((2 + PI) / (2 * PI * ALPHA * pow(cell_length, 3))) - error;
 };
 
-static double findSbybisection(double a, double b, double error, double Q2, double cell_length, double precision)
+static double ewd_findSbybisection(double a, double b, double error, double Q2, double cell_length, double precision)
 {
     double max = errorsDifference(error, a, Q2, cell_length);
     double min = errorsDifference(error, b, Q2, cell_length);
@@ -122,7 +122,7 @@ static double findSbybisection(double a, double b, double error, double Q2, doub
     return c;
 }
 
-void optimizeParameter(double error, double box_size, const double *charge_array, int n_particles)
+void ewd_optimizeParameter(double error, double box_size, const double *charge_array, int n_particles)
 {
 
     double Q2 = 0;
@@ -143,7 +143,7 @@ void optimizeParameter(double error, double box_size, const double *charge_array
 
     ALPHA = pow((TAU_RAPP * pow(PI, 3) / pow(box_size, 6) * n_particles), 1. / 6);
 
-    double s = findSbybisection(1e-3, 1e3, error, Q2, box_size, 1e-10);
+    double s = ewd_findSbybisection(1e-3, 1e3, error, Q2, box_size, 1e-10);
     REAL_CUTOFF = s / ALPHA;
 
     double kc = 2 * s * ALPHA;
@@ -153,7 +153,7 @@ void optimizeParameter(double error, double box_size, const double *charge_array
 }
 
 // Much simple parameter oprimization
-static inline void ewd_alpha_by_precision(double precision)
+static inline void ewd_set_alpha_by_precision(double precision)
 {
     ALPHA = sqrt(-log(precision));
 }

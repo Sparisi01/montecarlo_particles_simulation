@@ -17,14 +17,14 @@ double LENNAR_JONES_LOW_DISTANCE_CUTOFF = 1e-8;
  * is low range and a lot of interaction can be truncated without
  * losing accuracy.
  */
-double pb_i_lennar_jones_potential(int i,
-                                   const double *pos_array,
-                                   const double *charge_array,
-                                   int n_particles,
-                                   int space_dim,
-                                   double box_size,
-                                   double epsilon,
-                                   double sigma)
+double lj_i_energy(int i,
+                   const double *pos_array,
+                   const double *charge_array,
+                   int n_particles,
+                   int space_dim,
+                   double box_size,
+                   double epsilon,
+                   double sigma)
 {
     double energy_i = 0;
     double sigma_6 = sigma * sigma * sigma * sigma * sigma * sigma;
@@ -83,23 +83,23 @@ double pb_i_lennar_jones_potential(int i,
 }
 
 /**
- * @brief Compute the total lennar jones potential in periodic boundary condition using "pb_i_lennar_jones_potential".
+ * @brief Compute the total lennar jones potential in periodic boundary condition using "lj_i_energy".
  * See that for more.
  * It work regarding the space dimension.
  */
-double pb_total_lennar_jones_energy(const double *pos_array,
-                                    const double *charge_array,
-                                    int n_particles,
-                                    int space_dim,
-                                    double box_size,
-                                    double epsilon,
-                                    double sigma)
+double lj_total_energy(const double *pos_array,
+                       const double *charge_array,
+                       int n_particles,
+                       int space_dim,
+                       double box_size,
+                       double epsilon,
+                       double sigma)
 {
     double energy = 0.0;
 
     for (size_t i = 0; i < n_particles; i++)
     {
-        energy += pb_i_lennar_jones_potential(i, pos_array, charge_array, n_particles, space_dim, box_size, epsilon, sigma);
+        energy += lj_i_energy(i, pos_array, charge_array, n_particles, space_dim, box_size, epsilon, sigma);
     }
 
     energy *= 0.5; // remove double counting from pb_compute_one_particle_energy
@@ -107,15 +107,15 @@ double pb_total_lennar_jones_energy(const double *pos_array,
     return energy;
 }
 
-double pb_verlet_i_lennar_jones_potential(int i,
-                                          const double *pos_array,
-                                          const double *charge_array,
-                                          const IndexesList_t *vl,
-                                          int n_particles,
-                                          int space_dim,
-                                          double box_size,
-                                          double epsilon,
-                                          double sigma)
+double lj_verlet_i_energy(int i,
+                          const double *pos_array,
+                          const double *charge_array,
+                          const IndexesList_t *vl,
+                          int n_particles,
+                          int space_dim,
+                          double box_size,
+                          double epsilon,
+                          double sigma)
 {
     double energy_i = 0;
 
@@ -182,20 +182,20 @@ double pb_verlet_i_lennar_jones_potential(int i,
     return energy_i;
 }
 
-double pb_verlet_tot_lennar_jones_energy(const double *pos_array,
-                                         const double *charge_array,
-                                         const IndexesList_t *vl,
-                                         int n_particles,
-                                         int space_dim,
-                                         double box_size,
-                                         double epsilon,
-                                         double sigma)
+double lj_verlet_total_energy(const double *pos_array,
+                              const double *charge_array,
+                              const IndexesList_t *vl,
+                              int n_particles,
+                              int space_dim,
+                              double box_size,
+                              double epsilon,
+                              double sigma)
 {
     double energy = 0.0;
 
     for (size_t i = 0; i < n_particles; i++)
     {
-        energy += pb_verlet_i_lennar_jones_potential(i, pos_array, charge_array, vl, n_particles, space_dim, box_size, epsilon, sigma);
+        energy += lj_verlet_i_energy(i, pos_array, charge_array, vl, n_particles, space_dim, box_size, epsilon, sigma);
     }
 
     energy *= 0.5; // remove double counting from pb_compute_one_particle_energy
@@ -203,7 +203,7 @@ double pb_verlet_tot_lennar_jones_energy(const double *pos_array,
     return energy;
 }
 
-double lennard_jones_tail_correction_per_particle(
+double lj_tail_correction_per_particle(
     double density,
     double epsilon,
     double sigma,

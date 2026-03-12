@@ -20,14 +20,14 @@ struct IndexesList_t
     int list[VERLET_MAX_NEIGHBORS]; // List of indexes
 } typedef IndexesList_t;
 
-void verlet_pb_build_list(const double *pos_array,
-                          double *old_pos_array,
-                          IndexesList_t *vl,
-                          int n_particles,
-                          int space_dim,
-                          double box_size,
-                          double r_cut,
-                          double skin)
+void verlet_build_list(const double *pos_array,
+                       double *old_pos_array,
+                       IndexesList_t *vl,
+                       int n_particles,
+                       int space_dim,
+                       double box_size,
+                       double r_cut,
+                       double skin)
 {
     const double r_verlet2 = (r_cut + skin) * (r_cut + skin);
     const size_t total_array_size = (size_t)n_particles * space_dim * sizeof(double);
@@ -66,12 +66,12 @@ void verlet_pb_build_list(const double *pos_array,
     memcpy(old_pos_array, pos_array, total_array_size);
 }
 
-int verlet_pb_needs_rebuild(const double *pos_array,
-                            const double *old_pos_array,
-                            int n_particles,
-                            int space_dim,
-                            double box_size,
-                            double skin)
+int verlet_check_needs_rebuild(const double *pos_array,
+                               const double *old_pos_array,
+                               int n_particles,
+                               int space_dim,
+                               double box_size,
+                               double skin)
 {
     /** NOTE Multiplied by 0.5 to stay safe in the case that two particles moved toward each other
      *   by (skin * 0.5), resulting in a new displacement distance decreased by (2*skin*0.5) = skin
@@ -97,8 +97,8 @@ int verlet_pb_needs_rebuild(const double *pos_array,
 /**
  * @brief Get max number of neightbours in the verlet list
  */
-int get_max_verlet_count(IndexesList_t *vl,
-                         int n_particles)
+int verlet_get_max_neightbours(IndexesList_t *vl,
+                               int n_particles)
 {
     int max_count = 0;
 

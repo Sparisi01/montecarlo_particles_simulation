@@ -62,7 +62,7 @@ double pb_compute_total_energy(const double *pos_array,
                                double sigma)
 {
     double total_energy = 0;
-    total_energy += pb_total_lennar_jones_energy(pos_array, charge_array, n_particles, space_dim, box_size, epsilon, sigma);
+    total_energy += lj_total_energy(pos_array, charge_array, n_particles, space_dim, box_size, epsilon, sigma);
 
     if (COULOMB_INTERACTION_ON)
     {
@@ -90,7 +90,7 @@ double pb_verlet_compute_total_energy(const double *pos_array,
                                       double sigma)
 {
     double total_energy = 0;
-    total_energy += pb_verlet_tot_lennar_jones_energy(pos_array, charge_array, verlet_list, n_particles, space_dim, box_size, epsilon, sigma);
+    total_energy += lj_verlet_total_energy(pos_array, charge_array, verlet_list, n_particles, space_dim, box_size, epsilon, sigma);
 
     if (COULOMB_INTERACTION_ON)
     {
@@ -333,7 +333,7 @@ double verlet_pb_metropolis_step_one_particle(double energy,
 
         int i = perm[p];
 
-        double old_energy = pb_verlet_i_lennar_jones_potential(i, pos_array, charge_array, vl, n_particles, space_dim, box_size, epsilon, sigma);
+        double old_energy = lj_verlet_i_energy(i, pos_array, charge_array, vl, n_particles, space_dim, box_size, epsilon, sigma);
         if (COULOMB_INTERACTION_ON)
             old_energy += LAMBDA * ewd_verlet_i_short_energy(i, pos_array, charge_array, vl, n_particles, box_size);
 
@@ -346,7 +346,7 @@ double verlet_pb_metropolis_step_one_particle(double energy,
             steps_save[j] = dj;
         }
 
-        double new_energy = pb_verlet_i_lennar_jones_potential(i, pos_array, charge_array, vl, n_particles, space_dim, box_size, epsilon, sigma);
+        double new_energy = lj_verlet_i_energy(i, pos_array, charge_array, vl, n_particles, space_dim, box_size, epsilon, sigma);
         if (COULOMB_INTERACTION_ON)
             new_energy += LAMBDA * ewd_verlet_i_short_energy(i, pos_array, charge_array, vl, n_particles, box_size);
 
@@ -456,8 +456,7 @@ int main(int argc, char const *argv[])
     }
     printf("-------------------------------------\n");
 
-    const int seed = 42;
-    srand48(seed);
+    srand48(SEED);
 
     /**
      * SIMULATION PARAMETERS
@@ -552,7 +551,7 @@ int main(int argc, char const *argv[])
 
     if (restart_from_checkpoint)
     {
-        load_checkpoint_binary(check_point_file_name, pos_array, n_particles, space_dimension, &energy);
+        checkpoint_load_binary(check_point_file_name, pos_array, n_particles, space_dimension, &energy);
     }
     else
     {
@@ -599,11 +598,11 @@ int main(int argc, char const *argv[])
         LOG_FATAL("Error allocating verlet_list");
 
     // Build verlet list
-    verlet_pb_build_list(pos_array, old_pos_array, verlet_list, n_particles, space_dimension, box_size, VERLET_MAX_NEIGHTBOR_DISTANCE, SKIN);
+    verlet_build_list(pos_array, old_pos_array, verlet_list, n_particles, space_dimension, box_size, VERLET_MAX_NEIGHTBOR_DISTANCE, SKIN);
 
     printf("-------------------------------------\n");
     printf("VERLET_MAX_NEIGHTBOR_DISTANCE   : %.2f\n", VERLET_MAX_NEIGHTBOR_DISTANCE);
-    printf("Max verlet count                : %d\n", get_max_verlet_count(verlet_list, n_particles));
+    printf("Max verlet count                : %d\n", verlet_get_max_neightbours(verlet_list, n_particles));
     printf("-------------------------------------\n");
 
     // Optimize Ewald Summation Parameters
@@ -612,7 +611,7 @@ int main(int argc, char const *argv[])
         // NOTE
 
         const double ewald_error = 1e-1;
-        optimizeParameter(ewald_error, box_size, charge_array, n_particles);
+        ewd_optimizeParameter(ewald_error, box_size, charge_array, n_particles);
 
         ewd_print_parameters();
         printf("-------------------------------------\n");
@@ -648,7 +647,7 @@ int main(int argc, char const *argv[])
     printf("Start energy        : %.6E\n", energy);
 
     // Correction to the energy per particle due to cut off
-    const double LJ_tail_correction = lennard_jones_tail_correction_per_particle(density, lennar_jones_epsilon, lennar_jones_sigma, LENNAR_JONES_CUT_OFF_IN_SIGMA_UNIT) * n_particles;
+    const double LJ_tail_correction = lj_tail_correction_per_particle(density, lennar_jones_epsilon, lennar_jones_sigma, LENNAR_JONES_CUT_OFF_IN_SIGMA_UNIT) * n_particles;
     printf("LJ tail correction  : %.6E\n", LJ_tail_correction);
     printf("-------------------------------------\n");
 
@@ -718,9 +717,9 @@ int main(int argc, char const *argv[])
         energy = verlet_pb_metropolis_step_one_particle(energy, pos_array, charge_array, verlet_list, space_step, temperature, n_particles, space_dimension, &metropolis_accepted_steps, box_size, lennar_jones_epsilon, lennar_jones_sigma);
 
         // Check if the verlet list need to be rebuild
-        if (verlet_pb_needs_rebuild(pos_array, old_pos_array, n_particles, space_dimension, box_size, SKIN))
+        if (verlet_check_needs_rebuild(pos_array, old_pos_array, n_particles, space_dimension, box_size, SKIN))
         {
-            verlet_pb_build_list(pos_array, old_pos_array, verlet_list, n_particles, space_dimension, box_size, VERLET_MAX_NEIGHTBOR_DISTANCE, SKIN);
+            verlet_build_list(pos_array, old_pos_array, verlet_list, n_particles, space_dimension, box_size, VERLET_MAX_NEIGHTBOR_DISTANCE, SKIN);
             if (counting_verlet < min_counting_verlet)
             {
                 min_counting_verlet = counting_verlet;
@@ -731,7 +730,7 @@ int main(int argc, char const *argv[])
         if (i % (N_metropolis_steps / 100) == 0)
         {
             // Progress Bar
-            print_progress(i, N_metropolis_steps, begin_time);
+            progressBar_print(i, N_metropolis_steps, begin_time);
             printf(" - UpdateMinSteps: %d", min_counting_verlet);
 
             fflush(stdout);

@@ -9,7 +9,7 @@
  *
  * Prints a terminal progress bar with percentage and estimated time remaining (ETA).
  */
-void print_progress(size_t current, size_t total, clock_t start_time)
+void progressBar_print(size_t current, size_t total, clock_t start_time)
 {
     const int barWidth = 20;
     double progress = (double)current / total;

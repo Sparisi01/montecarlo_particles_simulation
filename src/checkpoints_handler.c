@@ -12,7 +12,7 @@ static const char CHECKPOINT_ERROR_MESSAGE_INFO_MISSMATCH[] = "Incompatible chec
  * Used to start a simulation from a fixed point in time instead of having to simulate all over again.
  * Usefull for study more precisely certain range of parameters.
  */
-void save_checkpoint_binary(const char *filename,
+void checkpoint_save_binary(const char *filename,
                             const double *pos_array,
                             int n_particles,
                             int space_dim,
@@ -44,7 +44,7 @@ void save_checkpoint_binary(const char *filename,
  * Used to start a simulation from a fixed point in time instead of having to simulate all over again.
  * Usefull for study more precisely certain range of parameters.
  */
-void load_checkpoint_binary(const char *filename,
+void checkpoint_load_binary(const char *filename,
                             double *pos_array,
                             int n_particles,
                             int space_dim,
