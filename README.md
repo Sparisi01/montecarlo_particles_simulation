@@ -5,6 +5,8 @@
 
 Monte Carlo simulation of interacting particles under **periodic boundary conditions** using the **Metropolis algorithm** in the canonical ensemble (NVT).
 
+For a full project report see [report.pdf](report.pdf).
+
 The code supports systems interacting through:
 
 - **Lennard–Jones potential** (short-range interactions)
@@ -86,17 +88,20 @@ The Coulomb interaction is computed using **Ewald summation**, which decomposes 
 
 Simulations are performed in **Lennard-Jones reduced units**:
 
-| Quantity | Value |
-|--------|--------|
-| $\sigma$ | 1 |
-| $\epsilon$ | 1 |
-| $k_B$ | 1 |
+| Quantity     | Base unit               | Conversion                             |
+|--------------|-------------------------|----------------------------------------|
+| Length       | $\sigma$                | $r = r^* \sigma$                       |
+| Energy       | $\varepsilon$           | $\mathcal{U} = \mathcal{U}^* \varepsilon$ |
+| Temperature  | $\varepsilon/k_B$       | $T = T^* \frac{\varepsilon}{k_B}$      |
+| Charge       | $e$                     | $q = q^* e$                            |
 
-Therefore:
+By introducing the dimensionless coupling constant $\lambda$ defined as
 
-- temperature is dimensionless
-- distances are measured in units of $\sigma$
-- energies are measured in units of $\epsilon$
+$    \lambda \equiv \frac{e^2}{4\pi\epsilon_0 \sigma \varepsilon}$
+
+the total pair potential becomes
+
+$    u^*_{tot}(r^*) = 4\left(\frac{1}{{r^*}^{12}} - \frac{1}{{r^*}^6} \right) + \lambda\frac{q^*_iq^*_j}{r^*}$
 
 [⬆ Back to top](#table-of-contents)
 
