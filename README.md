@@ -22,7 +22,6 @@ The implementation is written in **C** and designed for studying the equilibrium
 - [Physical Model](#physical-model)
 - [Units](#units)
 - [Compilation](#compilation)
-- [Running a Simulation](#running-a-simulation)
 - [Main Simulation Parameters](#main-simulation-parameters)
   - [Interaction parameters](#interaction-parameters)
   - [System configuration](#system-configuration)
@@ -34,8 +33,6 @@ The implementation is written in **C** and designed for studying the equilibrium
 - [Output](#output)
   - [Energy time series](#energy-time-series)
   - [Radial distribution functions](#radial-distribution-functions)
-- [Typical Simulation Workflow](#typical-simulation-workflow)
-- [Code Structure](#code-structure)
 - [Validation](#validation)
   - [Performance Scaling](#performance-scaling)
   - [Lennard-Jones simulation against NIST reference data](#lennard-jones-simulation-against-nist-reference-data)
@@ -127,18 +124,6 @@ output/
 ```
 
 [⬆ Back to top](#table-of-contents)
-
----
-
-## Running a Simulation
-
-Run the compiled binary:
-
-```t
-./build/main
-```
-
-All simulation parameters are currently defined directly inside `main.c`.
 
 ---
 
@@ -302,50 +287,6 @@ r ; g(r)
 ```
 
 and can be easily processed using Python.
-
-[⬆ Back to top](#table-of-contents)
-
----
-
-## Typical Simulation Workflow
-
-1. Initialize particles on an **FCC lattice**
-2. Thermalize the system using Metropolis Monte Carlo
-3. Sample configurations
-4. Compute radial distribution functions
-5. Analyze structural properties
-
-Example phases of the Lennard-Jones fluid:
-
-| Density | Temperature | Phase |
-|------|------|------|
-| 0.1 | 1.1 | Gas |
-| 0.7 | 1.1 | Liquid |
-| 1.3 | 1.1 | Solid |
-
-[⬆ Back to top](#table-of-contents)
-
----
-
-## Code Structure
-
-```t
-src/
-    arrays_stat_operations.c
-    checkpoints_handler.c
-    ewald.c
-    lennard_jones.c
-    periodic_boundaries.c
-    progress_bar.c
-    radial_distribution.c
-    verlet_list.c
-```
-
-The `main.c` file handles:
-
-- simulation setup
-- Monte Carlo loop
-- data collection
 
 [⬆ Back to top](#table-of-contents)
 
