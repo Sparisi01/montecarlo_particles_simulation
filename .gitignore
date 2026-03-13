@@ -11,6 +11,8 @@ __pycache__/
 cuda/
 images/
 output/
+test/output/
+test/build/
 .vscode/
 
 data_analysis_LJ_Coulomb_copy.ipynb

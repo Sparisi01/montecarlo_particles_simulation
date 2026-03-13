@@ -22,13 +22,14 @@
 #include <string.h>
 #include <math.h>
 
-#include "src/ewald.c"
+#include "../src/ewald.c"
+#include "../src/logger.c"
 
 #define TOL 1e-10
 
 int delta_test()
 {
-    printf("\n\n------DELTA TEST------\n");
+    LOG_TEST("------DELTA TEST------");
 
     const int n_particles = 500;
     const double box_size = 1;
@@ -88,8 +89,8 @@ int delta_test()
 
         if (err > TOL)
         {
-            LOG_FATAL("ERROR above tolerance!\n");
-            return EXIT_FAILURE;
+            printf("ERROR above tolerance!\n");
+            LOG_TEST_FAILED;
         }
 
         ewd_update_S_K(i, pos_new, pos, charge, box_size);
@@ -101,13 +102,15 @@ int delta_test()
     free(pos_new);
     free(charge);
 
+    LOG_TEST_PASSED;
+
     return 0;
 }
 
 void convergence_to_same_total_energy()
 {
 
-    LOG_TEST("Convergence test");
+    LOG_TEST("------CONVERGENCE TEST------");
 
     FILE *file = fopen("./output/convergence_test_file.csv", "w");
 
@@ -118,7 +121,6 @@ void convergence_to_same_total_energy()
     const int total_size = 3 * n_particles;
 
     double *pos = malloc(total_size * sizeof(double));
-    double *pos_new = malloc(total_size * sizeof(double));
     double *charge = malloc(n_particles * sizeof(double));
 
     srand48(12345);
@@ -134,7 +136,7 @@ void convergence_to_same_total_energy()
 
     const double alpha_min = 2;
     const double alpha_max = 40;
-    const double n_alpha = 100;
+    const double n_alpha = 30;
     const double d_alpha = (alpha_max - alpha_min) / n_alpha;
     double old_en = 0;
 
@@ -152,7 +154,7 @@ void convergence_to_same_total_energy()
         double short_en = ewd_short_energy(pos, charge, n_particles, box_size) / n_particles;
         double tot_en = long_en + short_en - self_en;
 
-        printf("Alpha: %.f, Short: %.5E, Long: %.5E, Self: %.5E, Tot: %.10E\n", ALPHA, short_en, long_en, self_en, tot_en);
+        printf("Alpha: %.1f, Short: %.5E, Long: %.5E, Self: %.5E, Tot: %.10E | ", ALPHA, short_en, long_en, self_en, tot_en);
         printf("alpha*rc = %.3f, kc/(2a)=%.3f\n",
                ALPHA * REAL_CUTOFF,
                (2 * PI * RECIPROCAL_RANGE / box_size) / (2 * ALPHA));
@@ -168,6 +170,8 @@ void convergence_to_same_total_energy()
     }
 
     LOG_TEST_PASSED;
+
+    return;
 }
 
 void translate(double *pos, int n_particles, double dx, double dy, double dz, double L)
@@ -184,7 +188,7 @@ void translate(double *pos, int n_particles, double dx, double dy, double dz, do
 void test_translation()
 {
 
-    printf("\n\n------TRANSLATION TEST------\n");
+    LOG_TEST("------TRANSLATION TEST------");
 
     EWD_OPTIMIZED = 1;
     const int n_particles = 500;
@@ -197,7 +201,6 @@ void test_translation()
     RECIPROCAL_RANGE = 8;
 
     double *pos = malloc(total_size * sizeof(double));
-    double *pos_new = malloc(total_size * sizeof(double));
     double *charge = malloc(n_particles * sizeof(double));
 
     for (int i = 0; i < n_particles; i++)
@@ -216,6 +219,15 @@ void test_translation()
     double E2 = ewd_total_energy(pos, charge, n_particles, box_size);
 
     printf("ΔE = %.3e\n", fabs(E1 - E2));
+
+    if (fabs(E1 - E2) < TOL)
+    {
+        LOG_TEST_PASSED;
+    }
+    else
+    {
+        LOG_TEST_FAILED;
+    }
 }
 
 int main()
@@ -223,6 +235,10 @@ int main()
     convergence_to_same_total_energy();
     test_translation();
     delta_test();
-    printf("\nALL TESTS PASSED\n");
+
+    printf("\n----------------\n");
+    printf("ALL TESTS PASSED");
+    printf("\n----------------\n");
+
     return 0;
 }

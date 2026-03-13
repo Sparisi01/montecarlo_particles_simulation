@@ -4,14 +4,9 @@
 
 We present Monte Carlo simulations of a three-dimensional system of particles interacting via Lennard–Jones and Coulomb potentials under periodic boundary conditions. Equilibrium configurations are generated using the Metropolis algorithm within the canonical ensemble. Short-range interactions are treated using a cutoff scheme combined with a Verlet neighbor list, while long-range Coulomb interactions are computed via Ewald summation with optimized parameters. The implementation is validated against reference data for the pure Lennard–Jones fluid. We then investigate the effect of increasing ionic coupling strength on structural properties, analyzing energy and radial distribution functions. The results demonstrate the efficiency of the numerical approach and reveal a transition from liquid-like to strongly correlated ionic structures at high coupling strengths.
 
-## Table of content
-
-- Compilation and Usage
-- other
-
 ## Compilation and Usage
 
-Compile and run the `main.c` file using the given `build.sh` file. Clang is required,
+Compile and run the `main.c` file using the given `build_main.sh` file. Clang is required,
 
 In the current form, all simulation setup has to be made inside the `main.c` file before compilation. In the following a list of variable that control the simulation:
 
@@ -28,5 +23,3 @@ In the current form, all simulation setup has to be made inside the `main.c` fil
 - `double ewald_error`: desired Ewald Summation statistical error.
 
 At the end of the simulation `energy` and `radial_distribution` data are saved as `.csv` files in to the `output` folder. The `output` and `build` folders are automatically created by `build.sh` if not present.
-
-## Project structure
