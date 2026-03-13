@@ -97,11 +97,11 @@ Simulations are performed in **Lennard-Jones reduced units**:
 
 By introducing the dimensionless coupling constant $\lambda$ defined as
 
-$    \lambda \equiv \frac{e^2}{4\pi\epsilon_0 \sigma \varepsilon}$
+$\lambda \equiv \frac{e^2}{4\pi\epsilon_0 \sigma \varepsilon}$
 
 the total pair potential becomes
 
-$    u^*_{tot}(r^*) = 4\left(\frac{1}{{r^*}^{12}} - \frac{1}{{r^*}^6} \right) + \lambda\frac{q^*_iq^*_j}{r^*}$
+$u^*_{tot}(r^*) = 4\left(\frac{1}{{r^*}^{12}} - \frac{1}{{r^*}^6} \right) + \lambda\frac{q^*_iq^*_j}{r^*}$
 
 [⬆ Back to top](#table-of-contents)
 
