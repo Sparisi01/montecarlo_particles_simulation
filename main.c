@@ -53,13 +53,13 @@ void save_particle_state_csv(const char *filename,
  *
  * @note Coulomb potential is computed used Ewald Summation and it requires a space dimension of 3.
  */
-double pb_compute_total_energy(const double *pos_array,
-                               const double *charge_array,
-                               int n_particles,
-                               int space_dim,
-                               double box_size,
-                               double epsilon,
-                               double sigma)
+double compute_total_energy(const double *pos_array,
+                            const double *charge_array,
+                            int n_particles,
+                            int space_dim,
+                            double box_size,
+                            double epsilon,
+                            double sigma)
 {
     double total_energy = 0;
     total_energy += lj_total_energy(pos_array, charge_array, n_particles, space_dim, box_size, epsilon, sigma);
@@ -77,17 +77,17 @@ double pb_compute_total_energy(const double *pos_array,
 }
 
 /**
- * @brief Same as "pb_compute_total_energy" but using VerletList to decrease computations efford. See "pb_compute_total_energy"
+ * @brief Same as "compute_total_energy" but using VerletList to decrease computations efford. See "compute_total_energy"
  * for more on comments.
  */
-double pb_verlet_compute_total_energy(const double *pos_array,
-                                      const double *charge_array,
-                                      const IndexesList_t *verlet_list,
-                                      int n_particles,
-                                      int space_dim,
-                                      double box_size,
-                                      double epsilon,
-                                      double sigma)
+double verlet_compute_total_energy(const double *pos_array,
+                                   const double *charge_array,
+                                   const IndexesList_t *verlet_list,
+                                   int n_particles,
+                                   int space_dim,
+                                   double box_size,
+                                   double epsilon,
+                                   double sigma)
 {
     double total_energy = 0;
     total_energy += lj_verlet_total_energy(pos_array, charge_array, verlet_list, n_particles, space_dim, box_size, epsilon, sigma);
@@ -210,7 +210,7 @@ void init_system_random(double *pos_array,
 }
 
 // This function perform an update of all the system at once, hard to get good acceptance rate for stable configurations.
-double pb_metropolis_step_full_system(double old_energy, double *pos_array, const double *charge_array, double delta, double temperature, int n_particles, int space_dim, long *accepted_counter, double box_size)
+double metropolis_step_full_system(double old_energy, double *pos_array, const double *charge_array, double delta, double temperature, int n_particles, int space_dim, long *accepted_counter, double box_size)
 {
     // Save old position configuration
     // NOTE - This memory gets never free
@@ -242,7 +242,7 @@ double pb_metropolis_step_full_system(double old_energy, double *pos_array, cons
     }
 
     // Compute the new energy
-    double new_energy = pb_compute_total_energy(pos_array, charge_array, n_particles, space_dim, box_size, 1, 1);
+    double new_energy = compute_total_energy(pos_array, charge_array, n_particles, space_dim, box_size, 1, 1);
     double dE = new_energy - old_energy;
 
     // Metropolis acceptance criterion
@@ -276,18 +276,18 @@ double pb_metropolis_step_full_system(double old_energy, double *pos_array, cons
 
 // This function perform an update of all the system on one particle at the time, easier to get good acceptance rate but
 // it has highter temporal correlation
-double verlet_pb_metropolis_step_one_particle(double energy,
-                                              double *pos_array,
-                                              const double *charge_array,
-                                              const IndexesList_t *vl,
-                                              double delta,
-                                              double temperature,
-                                              int n_particles,
-                                              int space_dim,
-                                              long *accepted_counter,
-                                              double box_size,
-                                              double epsilon,
-                                              double sigma)
+double verlet_metropolis_step_one_particle(double energy,
+                                           double *pos_array,
+                                           const double *charge_array,
+                                           const IndexesList_t *vl,
+                                           double delta,
+                                           double temperature,
+                                           int n_particles,
+                                           int space_dim,
+                                           long *accepted_counter,
+                                           double box_size,
+                                           double epsilon,
+                                           double sigma)
 {
 
     /** In order to remove the bias caused by updating all the particle using always the
@@ -317,13 +317,15 @@ double verlet_pb_metropolis_step_one_particle(double energy,
         perm[j] = tmp;
     }
 
+    size_t total_array_size = sizeof(double) * n_particles * space_dim;
+
     static double *old_position = NULL;
     if (old_position == NULL)
     {
-        old_position = (double *)malloc(sizeof(double) * n_particles * space_dim);
+        old_position = (double *)malloc(total_array_size);
     }
 
-    memcpy(old_position, pos_array, n_particles * space_dim);
+    memcpy(old_position, pos_array, total_array_size);
 
     // Keep track of space shifts for the current particle
     double steps_save[space_dim];
@@ -406,8 +408,8 @@ int test_same_energy_verlet_and_not_verlet(int n_particles,
                                            double tollerance)
 {
 
-    double no_verlet_energy = pb_compute_total_energy(pos_array, charge_array, n_particles, space_dimension, box_size, epsilon, sigma);
-    double verlet_energy = pb_verlet_compute_total_energy(pos_array, charge_array, verlet_list, n_particles, space_dimension, box_size, epsilon, sigma);
+    double no_verlet_energy = compute_total_energy(pos_array, charge_array, n_particles, space_dimension, box_size, epsilon, sigma);
+    double verlet_energy = verlet_compute_total_energy(pos_array, charge_array, verlet_list, n_particles, space_dimension, box_size, epsilon, sigma);
     double relative_error = fabs(verlet_energy - no_verlet_energy) / fabs(verlet_energy);
     int passed = relative_error < tollerance;
 
@@ -641,7 +643,7 @@ int main(int argc, char const *argv[])
 
     if (!restart_from_checkpoint)
     {
-        energy = pb_verlet_compute_total_energy(pos_array, charge_array, verlet_list, n_particles, space_dimension, box_size, lennar_jones_epsilon, lennar_jones_sigma);
+        energy = verlet_compute_total_energy(pos_array, charge_array, verlet_list, n_particles, space_dimension, box_size, lennar_jones_epsilon, lennar_jones_sigma);
     }
 
     printf("Start energy        : %.6E\n", energy);
@@ -714,7 +716,7 @@ int main(int argc, char const *argv[])
         counting_verlet++;
 
         // Update system using metropolis 1 particle step
-        energy = verlet_pb_metropolis_step_one_particle(energy, pos_array, charge_array, verlet_list, space_step, temperature, n_particles, space_dimension, &metropolis_accepted_steps, box_size, lennar_jones_epsilon, lennar_jones_sigma);
+        energy = verlet_metropolis_step_one_particle(energy, pos_array, charge_array, verlet_list, space_step, temperature, n_particles, space_dimension, &metropolis_accepted_steps, box_size, lennar_jones_epsilon, lennar_jones_sigma);
 
         // Check if the verlet list need to be rebuild
         if (verlet_check_needs_rebuild(pos_array, old_pos_array, n_particles, space_dimension, box_size, SKIN))

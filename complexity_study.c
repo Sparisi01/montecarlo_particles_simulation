@@ -23,13 +23,13 @@
 const double LAMBDA = 0; // For what lambda is see latex paper section "Units"
 const int COULOMB_INTERACTION_ON = 1;
 
-double pb_compute_total_energy(const double *pos_array,
-                               const double *charge_array,
-                               int n_particles,
-                               int space_dim,
-                               double box_size,
-                               double epsilon,
-                               double sigma)
+double compute_total_energy(const double *pos_array,
+                            const double *charge_array,
+                            int n_particles,
+                            int space_dim,
+                            double box_size,
+                            double epsilon,
+                            double sigma)
 {
     double total_energy = 0;
     total_energy += lj_total_energy(pos_array, charge_array, n_particles, space_dim, box_size, epsilon, sigma);
@@ -46,14 +46,14 @@ double pb_compute_total_energy(const double *pos_array,
     return total_energy;
 }
 
-double pb_verlet_compute_total_energy(const double *pos_array,
-                                      const double *charge_array,
-                                      const IndexesList_t *verlet_list,
-                                      int n_particles,
-                                      int space_dim,
-                                      double box_size,
-                                      double epsilon,
-                                      double sigma)
+double verlet_compute_total_energy(const double *pos_array,
+                                   const double *charge_array,
+                                   const IndexesList_t *verlet_list,
+                                   int n_particles,
+                                   int space_dim,
+                                   double box_size,
+                                   double epsilon,
+                                   double sigma)
 {
     double total_energy = 0;
     total_energy += lj_verlet_total_energy(pos_array, charge_array, verlet_list, n_particles, space_dim, box_size, epsilon, sigma);
@@ -169,8 +169,8 @@ int main(int argc, char const *argv[])
             if (i % (N_step / 100) == 0)
             {
 
-                // pb_verlet_compute_total_energy(pos_array, charge_array, verlet_list, n_particles, space_dimension, box_size, EPSILON, SIGMA);
-                pb_compute_total_energy(pos_array, charge_array, n_particles, space_dimension, box_size, EPSILON, SIGMA);
+                // verlet_compute_total_energy(pos_array, charge_array, verlet_list, n_particles, space_dimension, box_size, EPSILON, SIGMA);
+                compute_total_energy(pos_array, charge_array, n_particles, space_dimension, box_size, EPSILON, SIGMA);
 
                 // Progress Bar
                 progressBar_print(i, N_step, begin_time);
