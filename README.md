@@ -17,4 +17,4 @@ To improve computational efficiency, short-range interactions are evaluated usin
 The implementation is written in **C** and designed for studying the equilibrium properties of dense particle systems such as **Lennard-Jones fluids, ionic liquids, and strongly coupled plasmas**.
 
 The implementation is succesfully tested again the standard NIST (SRD 173) Lennard-Jones fluid simulations database.
-A study of the equilibrium properties varying the LJ and Coulomb coupling constant is perfermed.
+A study of the equilibrium properties varying the LJ and Coulomb coupling constant is performed.
