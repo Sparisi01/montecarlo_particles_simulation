@@ -1,4 +1,4 @@
-# Metropolis Monte Carlo Simulation of Lennard-Jones and Coulomb Systems
+# Metropolis Monte Carlo Particle Simulations of Coupled Lennard-Jones and Coulomb Potential under Periodic Boundary Conditions
 
 ![Build](https://img.shields.io/badge/build-passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
