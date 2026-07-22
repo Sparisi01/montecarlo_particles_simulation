@@ -1,4 +1,6 @@
-# Metropolis Monte Carlo Particle Simulations of Coupled Lennard-Jones and Coulomb Potential under Periodic Boundary Conditions
+# Metropolis Monte Carlo Simulations of Coupled Lennard-Jones and Coulomb Systems
+
+Keywords: _Monte Carlo Methods, Statistical Mechanics, Ewald Summation, Molecular Dynamics_
 
 ![Build](https://img.shields.io/badge/build-passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
