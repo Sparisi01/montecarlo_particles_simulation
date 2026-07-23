@@ -64,7 +64,7 @@ where:
 The total number of particles is
 
 $$
-N = n_{\text{cell\_per\_row}}^3 \times \text{lattice\_type}.
+N = n\_{\text{cell\_per\_row}}^3 \times \text{lattice\_type}.
 $$
 
 The cubic simulation box length is
