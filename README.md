@@ -61,11 +61,7 @@ where:
   - `4` = Face-Centered Cubic (FCC)
 - `temperature` : Reduced temperature.
 
-The total number of particles is
-
-$$
-N = n_{\text{cell_per_row}}^3 \times \text{lattice_type}.
-$$
+The total number of particles is ```N = n_cell_per_row^3 * lattice_type```.
 
 The cubic simulation box length is
 
