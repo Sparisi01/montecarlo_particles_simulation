@@ -16,8 +16,8 @@
 #include "src/radial_distribution.c"
 
 // Choose type of simulation
-const double LAMBDA = 0; // For what lambda is see latex paper section "Units"
-const int COULOMB_INTERACTION_ON = (LAMBDA != 0);
+double LAMBDA = 0; // For what lambda is see latex paper section "Units"
+int COULOMB_INTERACTION_ON = 0;
 
 /**
  * @brief Save particles position and charge state in a csv file, easy to read in python for data analysis.
@@ -440,6 +440,55 @@ int test_same_energy_verlet_and_not_verlet(int n_particles,
 
 int main(int argc, char const *argv[])
 {
+    /**
+     * SIMULATION PARAMETERS
+     */
+
+    if (argc != 6)
+    {
+        fprintf(stderr,
+                "Usage: %s <lambda> <density> <n_cell_per_row> <lattice_type> <temperature>\n",
+                argv[0]);
+        fprintf(stderr,
+                "Example: %s 0.0 0.86 5 4 0.85\n",
+                argv[0]);
+        return EXIT_FAILURE;
+    }
+
+    LAMBDA = atof(argv[1]);
+    COULOMB_INTERACTION_ON = (LAMBDA != 0);
+
+    const double density = atof(argv[2]);
+    const int n_cell_per_row = atoi(argv[3]);
+    const int lattice_type = atoi(argv[4]);
+    const double temperature = atof(argv[5]);
+
+    if (density <= 0)
+    {
+        fprintf(stderr, "Density must be > 0\n");
+        return EXIT_FAILURE;
+    }
+
+    if (n_cell_per_row <= 0)
+    {
+        fprintf(stderr, "n_cell_per_row must be > 0\n");
+        return EXIT_FAILURE;
+    }
+
+    if (lattice_type != 1 &&
+        lattice_type != 2 &&
+        lattice_type != 4)
+    {
+        fprintf(stderr,
+                "lattice_type must be 1 (SC), 2 (BCC) or 4 (FCC)\n");
+        return EXIT_FAILURE;
+    }
+
+    if (temperature <= 0)
+    {
+        fprintf(stderr, "temperature must be > 0\n");
+        return EXIT_FAILURE;
+    }
 
     printf("\n");
     printf("=====================================\n");
@@ -459,14 +508,6 @@ int main(int argc, char const *argv[])
     printf("-------------------------------------\n");
 
     srand48(SEED);
-
-    /**
-     * SIMULATION PARAMETERS
-     */
-
-    const int lattice_type = 4; // Lattice type FCC
-    const int n_cell_per_row = 5;
-    const double density = 0.86;
 
     // In reduced unit keep those two at 1
     const double lennar_jones_epsilon = 1;
@@ -700,7 +741,6 @@ int main(int argc, char const *argv[])
     const int N_data_steps = 10000;
     const int N_thermalization_steps = 100000;
     const int N_metropolis_steps = N_thermalization_steps + N_data_steps;
-    double temperature = 8.50E-01;
 
     printf(" Temperature : %.3f\n", temperature);
     printf("-------------------------------------\n");

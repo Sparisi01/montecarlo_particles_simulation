@@ -1,5 +1,13 @@
 # Metropolis Monte Carlo Simulations of Coupled Lennard-Jones and Coulomb Systems
 
+<p align="center">
+  <img src="./png/PBC.png" alt="Monte Carlo simulation of Lennard-Jones and Coulomb particles" width="300">
+</p>
+
+<p align="center">
+  Snapshot of the simulation box under periodic boundary conditions (PBC), showing oppositely charged particles and the Verlet neighbor-list cutoff.
+</p>
+
 ![Build](https://img.shields.io/badge/build-passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
@@ -8,6 +16,8 @@
 **Keywords**: _Monte Carlo Methods, Statistical Mechanics, Ewald Summation, Molecular Dynamics, Verlet List_
 
 **Full project report**: [report.pdf](report.pdf).
+
+---
 
 ## Description
 
@@ -22,6 +32,51 @@ To improve computational efficiency, short-range interactions are evaluated usin
 
 The implementation is written in **C** and designed for studying the equilibrium properties of dense particle systems such as **Lennard-Jones fluids, ionic liquids, and strongly coupled plasmas**.
 
+---
+
+## Usage
+
+Compile the project with Clang:
+
+```bash
+clang -Wall -lm -O2 -std=gnu17 main.c -o ./build/main 
+```
+
+or by executing the given ```build_main.sh``` file.
+
+The executable expects the following command-line arguments:
+
+```text
+./build/main <lambda> <density> <n_cell_per_row> <lattice_type> <temperature>
+```
+
+where:
+
+- `lambda` : Coulomb interaction strength (`0` disables Coulomb interactions).
+- `density` : Reduced particle density.
+- `n_cell_per_row` : Number of unit cells along each box direction.
+- `lattice_type` :
+  - `1` = Simple Cubic (SC)
+  - `2` = Body-Centered Cubic (BCC)
+  - `4` = Face-Centered Cubic (FCC)
+- `temperature` : Reduced temperature.
+
+The total number of particles is
+
+$$
+N = n_{\text{cell\_per\_row}}^3 \times \text{lattice\_type}.
+$$
+
+The cubic simulation box length is
+
+$$
+L=\left(\frac{N}{\rho}\right)^{1/3},
+$$
+
+where $\rho$ is the reduced number density.
+
+---
+
 ## Validation
 
 The implementation has been validated through several benchmark studies:
@@ -32,6 +87,8 @@ The implementation has been validated through several benchmark studies:
 
 - Performance analysis: confirmation of the expected computational scaling of both the Verlet neighbor list and Ewald algorithms ([plot](./png/complexity_styled.png)).
 
+---
+
 ## Scientific Results
 
 The code has been used to investigate equilibrium properties of systems with competing Lennard-Jones and Coulomb interactions.
@@ -39,8 +96,10 @@ The code has been used to investigate equilibrium properties of systems with com
 By progressively increasing the relative strength of the Coulomb interaction, the simulations reveal the emergence of long-range electrostatic ordering. The radial distribution functions clearly show the formation of charge shells, illustrating the crossover from a Lennard-Jones fluid to a Coulomb-dominated regime.
 
 <p align="center">
-    <img src="./png/lambda_coupling_styled.png" alt="Logo" width= 300 height=800>
+    <img src="./png/lambda_coupling_styled.png" alt="Logo" width= 300>
 </p>
+
+---
 
 ## References
 
